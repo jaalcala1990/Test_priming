@@ -894,6 +894,9 @@ async function measureRefresh(n = 90) {
   const ts = []; for (let i = 0; i <= n; i++) ts.push(await nextFrame());
   const d = ts.slice(1).map((t, i) => t - ts[i]).sort((a, b) => a - b);
   frameMs = d[Math.floor(d.length / 2)]; refreshHz = 1000 / frameMs;
+  // Ajusta a la frecuencia estándar más cercana si está a menos de un 4 % (p. ej. 58,8 → 60 Hz)
+  const std = [50, 60, 72, 75, 85, 90, 100, 120, 144, 165, 240].find(h => Math.abs(refreshHz - h) / h < 0.04);
+  if (std) { refreshHz = std; frameMs = 1000 / std; }
   $('refreshInfo').textContent = `Frecuencia de refresco medida: ${refreshHz.toFixed(1)} Hz (${frameMs.toFixed(2)} ms por frame). Los tiempos se redondean a frames completos.`;
 }
 
@@ -959,12 +962,17 @@ function maskText(v, r) {
   return String(v);
 }
 // Muestra html durante ms (redondeado a frames). Devuelve el timestamp del frame de inicio.
+// Controla el tiempo real transcurrido (no un número fijo de frames): si el navegador
+// pierde frames, la pantalla no se alarga. El cambio a la siguiente pantalla se hace en
+// el primer frame cuyo instante queda más cerca de la duración pedida.
 async function present(html, ms) {
   if (!(ms > 0)) return null;
-  const n = Math.max(1, Math.round(ms / frameMs));
   const t0 = await nextFrame();
   stim.innerHTML = html;
-  for (let i = 0; i < n - 1; i++) await nextFrame();
+  while (true) {
+    const ts = await nextFrame();
+    if (ts + frameMs - t0 >= ms - frameMs / 2) break;   // el siguiente frame (donde cambia la pantalla) llega a la duración pedida
+  }
   return t0;
 }
 function presentTarget(html, visibleMs, maxMs, keys) {
@@ -1057,12 +1065,20 @@ async function runTrial(r, ctx) {
   for (const [k, v] of Object.entries(r)) if (!k.startsWith('_') && !CTRL_COLS.has(k)) row[k] = v;
   for (const k of TIMING_KEYS) row[k] = T[k];
   row.fijacion_real_ms = real.fijacion ?? null;
-  row.mascara1_texto = m1;
+  row.mascara1_texto = T.mascara1_ms > 0 ? m1 : '';
   row.mascara1_real_ms = real.mascara1 ?? null;
   row.prime_real_ms = real.prime ?? null;
-  row.mascara2_texto = m2;
+  row.mascara2_texto = T.mascara2_ms > 0 ? m2 : '';
   row.mascara2_real_ms = real.mascara2 ?? null;
   row.soa_real_ms = tP !== null ? res.onset - tP : null;
+  // Control de tiempos: compara cada pantalla con lo que debía durar (en frames completos).
+  // tiempos_ok = 0 si alguna se desvía más de medio frame (p. ej. si el navegador bajó el refresco).
+  let desv = 0;
+  for (const [k, prog] of [['fijacion', T.fijacion_ms], ['mascara1', T.mascara1_ms], ['prime', T.prime_ms], ['mascara2', T.mascara2_ms]]) {
+    if (prog > 0 && real[k] !== undefined) desv = Math.max(desv, Math.abs(real[k] - Math.max(1, Math.round(prog / frameMs)) * frameMs));
+  }
+  row.desviacion_max_ms = desv;
+  row.tiempos_ok = desv <= frameMs / 2 ? 1 : 0;
   row.respuesta_correcta = correctResp;
   row.tecla = res.key ? keyName(res.key) : '';
   row.respuesta = resp;
