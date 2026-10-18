@@ -903,6 +903,7 @@ function saveBackup() { try { localStorage.setItem(LS_KEY, JSON.stringify(SESSIO
 function fmt(v, dec) {
   if (v === null || v === undefined) return '';
   if (typeof v === 'number') return Number.isInteger(v) ? String(v) : v.toFixed(1).replace('.', dec);
+  if (dec === '.' && /^-?\d+,\d+$/.test(String(v).trim())) return String(v).trim().replace(',', '.');  // decimales del CSV de estímulos
   return String(v);
 }
 function toCSV(rows, sep, dec) {
@@ -1046,6 +1047,7 @@ async function runTrial(r, ctx) {
   const correct = res.timeout ? 0 : (resp === correctResp ? 1 : 0);
 
   const row = {
+    trial_type: 'decision_lexica_priming',   // DataPipe exige por defecto una columna trial_type
     participante: SESSION.meta.participante, sesion: SESSION.meta.sesion, grupo: SESSION.meta.grupo,
     asignacion_teclas: SESSION.meta.asignacion, fecha_inicio: SESSION.meta.fecha, modo_prueba: SESSION.meta.modo_prueba,
     modo: SESSION.meta.modo,
@@ -1172,10 +1174,11 @@ const hasDataPipeId = () => { const id = String(CFG.datapipe_id || '').trim(); r
 const warnUnload = e => { e.preventDefault(); e.returnValue = ''; };
 
 async function sendDataPipe(sess) {
-  const sep = sess.sep === '\\t' ? '\t' : (sess.sep || ';');
+  // A DataPipe se envía CSV estándar (coma como separador, punto decimal, sin BOM):
+  // es lo que su validación espera. Las descargas locales siguen con ; y , para Excel.
   const filename = sess.filename + (sess.completa ? '' : '_INCOMPLETO') + '.csv';
   const body = JSON.stringify({ experimentID: String(CFG.datapipe_id).trim(), filename,
-                                data: '\uFEFF' + toCSV(sess.data, sep, sess.dec || ',') });
+                                data: toCSV(sess.data, ',', '.') });
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
       const r = await fetch(DATAPIPE_URL + 'data/', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: '*/*' }, body });
