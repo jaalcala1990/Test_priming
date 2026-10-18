@@ -31,7 +31,7 @@
   .row { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; }
   label.f { display:flex; flex-direction:column; gap:4px; font-size:13px;
             color:var(--muted); flex:1 1 180px; }
-  input[type=text], select { font:inherit; padding:8px 10px; border:1px solid var(--line);
+  input[type=text], input[type=email], select { font:inherit; padding:8px 10px; border:1px solid var(--line);
             border-radius:6px; color:var(--ink); background:#fff; }
   input[type=file] { font-size:13px; }
   button { font:inherit; padding:9px 16px; border-radius:6px; border:1px solid var(--line);
@@ -51,6 +51,8 @@
   .consent { max-height:45vh; overflow:auto; border:1px solid var(--line); border-radius:8px;
              padding:12px 14px; margin:14px 0; font-size:15px; background:#fcfbf9; white-space:pre-wrap; }
   #onErr:empty { display:none; }
+  #onContact { margin:18px 0 6px; }
+  #onStart { margin-top:14px; }
 
   #stage { position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
            cursor:none; }
@@ -117,6 +119,13 @@
       <div id="onConsentText" class="consent"></div>
       <label class="check"><input type="checkbox" id="onAgree"> He leído la información anterior y acepto participar</label>
     </div>
+    <div id="onContact" hidden="">
+      <p id="onContactText" class="small" style="font-size:15px"></p>
+      <div class="row">
+        <label class="f">Nombre (opcional)<input type="text" id="onName" autocomplete="name" maxlength="100"></label>
+        <label class="f">Correo electrónico (opcional)<input type="email" id="onEmail" autocomplete="email" maxlength="150"></label>
+      </div>
+    </div>
     <p class="msg err" id="onErr"></p>
     <button class="primary" id="onStart">Comenzar</button>
   </div>
@@ -173,6 +182,9 @@ descarga_local_online;no;En modo online, descargar también el CSV en el ordenad
 texto_bienvenida;Gracias por tu interés en participar en este estudio.\n\nLa tarea dura aproximadamente [COMPLETAR: duración] minutos. Necesitas un ordenador con teclado y un lugar tranquilo, sin distracciones.\n\nAl pulsar «Comenzar», la pantalla pasará a modo completo. No cierres la ventana hasta que la tarea te indique que has terminado.;Pantalla de bienvenida en modo online
 texto_consentimiento;[COMPLETAR: hoja de información y consentimiento aprobada por el comité de ética];Hoja de información y consentimiento (vacío = no se muestra). Si hay texto, hay que marcar la casilla para empezar
 texto_final_online;Has terminado la tarea y tus respuestas se han guardado correctamente.\n\n¡Muchas gracias por tu participación!\n\nYa puedes cerrar esta ventana.;Pantalla final en modo online cuando los datos se han enviado bien
+prefijo_archivo;LDT_priming;Inicio del nombre de los archivos de datos (p. ej. LDT_priming o LDT_prueba)
+pedir_contacto;no;"Mostrar campos opcionales de nombre y correo en la bienvenida online (si/no); se guardan en el archivo de datos"
+texto_contacto;Si lo deseas, puedes dejarnos tu nombre y tu correo electrónico. Son opcionales: puedes participar sin rellenarlos.;Texto que acompaña a los campos de nombre y correo
 texto_error_envio;Has terminado la tarea, pero no se han podido enviar tus respuestas (posible problema de conexión).\n\nPor favor, pulsa el botón para descargar el archivo y envíaselo a la persona responsable del estudio.;Pantalla si falla el envío (aparece un botón para descargar los datos)
 texto_instrucciones;En esta tarea verás una cruz (+) en el centro de la pantalla. Mantén la mirada en ella.\n\nDespués aparecerá brevemente una palabra y, a continuación, una serie de letras.\n\nTu tarea es decidir, lo más rápido y con la mayor precisión posible, si esas letras forman una palabra que existe en español.\n\nSi es una PALABRA, pulsa la tecla {PALABRA}.\nSi NO es una palabra, pulsa la tecla {NO_PALABRA}.\n\nPulsa la BARRA ESPACIADORA para continuar.;"Instrucciones iniciales. {PALABRA} y {NO_PALABRA} = teclas; \n = salto de línea"
 texto_inicio_practica;Vamos a empezar con unos ensayos de práctica.\n\nPALABRA = tecla {PALABRA}\nNO PALABRA = tecla {NO_PALABRA}\n\nPulsa la BARRA ESPACIADORA para empezar.;Pantalla antes de la práctica
@@ -530,6 +542,10 @@ const DEFAULTS = {
   texto_consentimiento: '',              // vacío = no se muestra; si hay texto, el participante debe aceptarlo
   texto_final_online:
     'Has terminado la tarea y tus respuestas se han guardado correctamente.\n\n¡Muchas gracias por tu participación!\n\nYa puedes cerrar esta ventana.',
+  prefijo_archivo: 'LDT_priming',       // inicio del nombre de los archivos de datos
+  pedir_contacto: 'no',                  // si = el participante puede dejar nombre y correo (opcionales)
+  texto_contacto:
+    'Si lo deseas, puedes dejarnos tu nombre y tu correo electrónico. Son opcionales: puedes participar sin rellenarlos.',
   texto_error_envio:
     'Has terminado la tarea, pero no se han podido enviar tus respuestas (posible problema de conexión).\n\n' +
     'Por favor, pulsa el botón para descargar el archivo y envíaselo a la persona responsable del estudio.',
@@ -607,7 +623,10 @@ const DESCRIPCIONES = {
   texto_bienvenida: 'Pantalla de bienvenida en modo online',
   texto_consentimiento: 'Hoja de información y consentimiento (vacío = no se muestra). Si hay texto, hay que marcar la casilla para empezar',
   texto_final_online: 'Pantalla final en modo online cuando los datos se han enviado bien',
-  texto_error_envio: 'Pantalla si falla el envío (aparece un botón para descargar los datos)'
+  texto_error_envio: 'Pantalla si falla el envío (aparece un botón para descargar los datos)',
+  prefijo_archivo: 'Inicio del nombre de los archivos de datos (p. ej. LDT_priming o LDT_prueba)',
+  pedir_contacto: 'Mostrar campos opcionales de nombre y correo en la bienvenida online (si/no); se guardan en el archivo de datos',
+  texto_contacto: 'Texto que acompaña a los campos de nombre y correo'
 };
 function configToCSV(cfg) {
   const q = v => { v = String(v ?? '').replace(/\r?\n/g, '\\n'); return /[;"]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
@@ -973,16 +992,22 @@ function presentTarget(html, visibleMs, maxMs, keys) {
 }
 async function waitKeys(keys) {
   let pressed = null;
-  const h = e => { const k = evKey(e); if (keys.includes(k)) { pressed = k; e.preventDefault(); } };
+  const h = e => { if (e.repeat) return; const k = evKey(e); if (keys.includes(k)) { pressed = k; e.preventDefault(); } };
   window.addEventListener('keydown', h, true);
   while (!pressed && !aborted) await nextFrame();
   window.removeEventListener('keydown', h, true);
   return pressed;
 }
+// Varias pantallas seguidas: separa el texto con [PAGINA]
 async function textScreen(text, keys = [' '], extra = {}) {
   stage.classList.add('text');
-  stim.innerHTML = `<div class="screen">${esc(fillText(text, extra)).replace(/\n/g, '<br>')}</div>`;
-  await waitKeys(keys);
+  const pages = fillText(text, extra).split(/\s*\[PAGINA\]\s*/i).filter(x => x.trim());
+  for (let i = 0; i < pages.length; i++) {
+    stim.innerHTML = `<div class="screen">${esc(pages[i]).replace(/\n/g, '<br>')}</div>`;
+    await waitKeys(keys);
+    if (aborted) break;
+    if (i < pages.length - 1) { stim.innerHTML = ''; await new Promise(r => setTimeout(r, 250)); }
+  }
   stim.innerHTML = '';
   stage.classList.remove('text');
 }
@@ -1045,7 +1070,11 @@ async function runTrial(r, ctx) {
   row.teclas_anticipadas = anticip;
   row.refresco_hz = Math.round(refreshHz * 10) / 10;
   row.pantalla_px = SESSION.meta.pantalla_px;
-  if (SESSION.meta.modo === 'online') { row.consentimiento = SESSION.meta.consentimiento; row.navegador = SESSION.meta.navegador; }
+  if (SESSION.meta.modo === 'online') {
+    row.consentimiento = SESSION.meta.consentimiento;
+    if (SESSION.meta.nombre !== null) { row.nombre = SESSION.meta.nombre; row.correo = SESSION.meta.correo; }
+    row.navegador = SESSION.meta.navegador;
+  }
 
   const fb = ctx.practica ? isTrue(CFG.feedback_practica) : isTrue(CFG.feedback_experimental);
   if (fb && CFG.feedback_ms > 0) {
@@ -1067,9 +1096,9 @@ async function runExperiment() {
   SESSION = {
     meta: { participante: pid, sesion: $('sesion').value.trim(), grupo: $('grupo').value.trim(),
             asignacion: $('mapping').value, fecha: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`, modo_prueba: testMode ? 1 : 0,
-            modo: isTrue(CFG.modo_online) ? 'online' : 'local', consentimiento: ONLINE.consent,
+            modo: isTrue(CFG.modo_online) ? 'online' : 'local', consentimiento: ONLINE.consent, nombre: ONLINE.nombre ?? null, correo: ONLINE.correo ?? null,
             pantalla_px: `${screen.width}x${screen.height}`, navegador: navigator.userAgent },
-    filename: `LDT_priming_${pid.replace(/[^\w\-]+/g, '_')}_s${($('sesion').value.trim() || '1').replace(/[^\w\-]+/g, '_')}_${stamp}${pad(now.getSeconds())}${testMode ? '_PRUEBA' : ''}`,
+    filename: `${String(CFG.prefijo_archivo || 'LDT_priming').replace(/[^\w\-]+/g, '_')}_${pid.replace(/[^\w\-]+/g, '_')}_s${($('sesion').value.trim() || '1').replace(/[^\w\-]+/g, '_')}_${stamp}${pad(now.getSeconds())}${testMode ? '_PRUEBA' : ''}`,
     sep: CFG.separador_salida, dec: CFG.decimal_salida,
     data: [], completa: false, terminada: false
   };
@@ -1193,6 +1222,7 @@ function initOnline() {
   $('onText').innerHTML = esc(fillText(CFG.texto_bienvenida)).replace(/\n/g, '<br>');
   const consent = String(CFG.texto_consentimiento || '').trim();
   if (consent) { $('onConsent').hidden = false; $('onConsentText').textContent = fillText(consent); }
+  if (isTrue(CFG.pedir_contacto)) { $('onContact').hidden = false; $('onContactText').textContent = fillText(CFG.texto_contacto); }
   const errs = [];
   if (!trialData || trialData.errors.length || !trialData.rows.length)
     errs.push('La tarea no está bien configurada (no hay ensayos válidos). Avisa a la persona responsable del estudio.');
@@ -1203,6 +1233,11 @@ function initOnline() {
   $('onStart').addEventListener('click', async () => {
     if (consent && !$('onAgree').checked) { $('onErr').textContent = 'Para participar tienes que marcar la casilla de consentimiento.'; return; }
     $('onErr').textContent = ''; $('onStart').disabled = true;
+    if (isTrue(CFG.pedir_contacto)) {
+      const mail = $('onEmail').value.trim();
+      if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) { $('onErr').textContent = 'El correo electrónico no parece válido. Corrígelo o déjalo en blanco.'; $('onStart').disabled = false; return; }
+      ONLINE.nombre = $('onName').value.trim(); ONLINE.correo = mail;
+    }
     ONLINE.consent = consent ? 'si' : 'no_aplica';
     $('pid').value = urlParam('id', 'participante', 'PROLIFIC_PID', 'pid') || randomId();
     $('sesion').value = urlParam('sesion') || '1';

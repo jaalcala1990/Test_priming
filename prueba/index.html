@@ -1,0 +1,1024 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decisión léxica con priming</title>
+<!--
+  Tarea de decisión léxica con priming
+  ------------------------------------
+  Archivo único, funciona sin conexión: basta con abrirlo en Chrome o Firefox.
+  - Los ensayos se leen de un CSV (ver ensayos_ejemplo.csv).
+  - Los parámetros generales se pueden cambiar con un CSV de configuración
+    opcional (ver configuracion_ejemplo.csv) o editando DEFAULTS más abajo.
+  - Los datos se descargan como CSV al terminar (carpeta Descargas) y se guarda
+    una copia de seguridad en el navegador tras cada ensayo.
+  - Shift + Esc aborta la sesión y descarga los datos recogidos hasta ese momento.
+-->
+<style>
+  :root { --bg:#f6f5f2; --panel:#fff; --ink:#1d1d1f; --muted:#6b6b70; --line:#e2e0db;
+          --accent:#2f5d8a; --ok:#2e7d4f; --warn:#9a5800; --err:#b3261e; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; }
+  body { background:var(--bg); color:var(--ink);
+         font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  #setup { max-width:880px; margin:0 auto; padding:32px 16px 60px; }
+  h1 { font-size:24px; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 22px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          padding:18px 20px; margin-bottom:16px; }
+  .card h2 { font-size:13px; margin:0 0 12px; text-transform:uppercase;
+             letter-spacing:.05em; color:var(--muted); }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; }
+  label.f { display:flex; flex-direction:column; gap:4px; font-size:13px;
+            color:var(--muted); flex:1 1 180px; }
+  input[type=text], input[type=email], select { font:inherit; padding:8px 10px; border:1px solid var(--line);
+            border-radius:6px; color:var(--ink); background:#fff; }
+  input[type=file] { font-size:13px; }
+  button { font:inherit; padding:9px 16px; border-radius:6px; border:1px solid var(--line);
+           background:#fff; cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .msg { font-size:14px; margin:4px 0; }
+  .msg.err { color:var(--err); } .msg.warn { color:var(--warn); } .msg.ok { color:var(--ok); }
+  table { border-collapse:collapse; font-size:13px; margin:8px 0 4px; }
+  td,th { border:1px solid var(--line); padding:4px 10px; text-align:left; }
+  th { background:#faf9f7; font-weight:600; }
+  .small { font-size:13px; color:var(--muted); }
+  .check { display:flex; gap:6px; align-items:center; font-size:14px; }
+  #summary:empty { display:none; }
+  #online { max-width:760px; margin:0 auto; padding:40px 16px; font-size:17px; }
+  #online h1 { margin-bottom:14px; }
+  .consent { max-height:45vh; overflow:auto; border:1px solid var(--line); border-radius:8px;
+             padding:12px 14px; margin:14px 0; font-size:15px; background:#fcfbf9; white-space:pre-wrap; }
+  #onErr:empty { display:none; }
+  #onContact { margin:18px 0 6px; }
+  #onStart { margin-top:14px; }
+
+  #stage { position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+           cursor:none; }
+  #stage[hidden] { display:none; }
+  #stim { text-align:center; white-space:pre-wrap; }
+  #stage.text { cursor:default; }
+  .screen { max-width:760px; padding:20px; font-size:22px; line-height:1.55; text-align:left; }
+  .fb-ok { color:#1a7f37; } .fb-err { color:#c62828; }
+  .hint { position:fixed; bottom:12px; left:0; right:0; text-align:center; font-size:13px; opacity:.5; }
+</style>
+</head>
+<body>
+
+<div id="setup">
+  <h1>Decisión léxica con priming</h1>
+  <p class="sub">Fijación → blanco → prime → blanco → target (¿palabra o no palabra?). Los ensayos se cargan desde un CSV.</p>
+
+  <div class="card">
+    <h2>Participante</h2>
+    <div class="row">
+      <label class="f">Código de participante *<input type="text" id="pid" autocomplete="off"></label>
+      <label class="f">Sesión<input type="text" id="sesion" value="1" autocomplete="off"></label>
+      <label class="f">Grupo / condición<input type="text" id="grupo" autocomplete="off"></label>
+      <label class="f">Asignación de teclas
+        <select id="mapping">
+          <option value="estandar">Estándar</option>
+          <option value="invertida">Invertida</option>
+        </select>
+      </label>
+    </div>
+    <p class="small" id="mappingInfo"></p>
+  </div>
+
+  <div class="card">
+    <h2>Archivos</h2>
+    <div class="row">
+      <label class="f">CSV de ensayos<input type="file" id="fTrials" accept=".csv,.txt,text/csv"></label>
+      <label class="f">CSV de configuración (opcional)<input type="file" id="fConfig" accept=".csv,.txt,text/csv"></label>
+    </div>
+    <p class="small" id="sources"></p>
+    <div id="msgs"></div>
+    <div id="summary"></div>
+  </div>
+
+  <div class="card">
+    <h2>Inicio</h2>
+    <div class="row" style="align-items:center">
+      <button class="primary" id="btnStart" disabled="">Comenzar experimento</button>
+      <label class="check"><input type="checkbox" id="testMode"> Modo prueba (solo 3 ensayos por bloque)</label>
+      <button id="btnCfg">Descargar configuración actual (CSV)</button>
+      <button id="btnSaveHtml">Guardar copia del HTML con esta configuración</button>
+      <button id="btnRecover" hidden="">Descargar última sesión guardada</button>
+    </div>
+    <p class="small" id="refreshInfo">Midiendo frecuencia de refresco…</p>
+    <p class="small">Durante el experimento: <b>Shift + Esc</b> aborta y descarga los datos recogidos hasta ese momento.</p>
+  </div>
+</div>
+
+<div id="online" hidden="">
+  <div class="card">
+    <h1>Bienvenida</h1>
+    <p id="onText"></p>
+    <div id="onConsent" hidden="">
+      <div id="onConsentText" class="consent"></div>
+      <label class="check"><input type="checkbox" id="onAgree"> He leído la información anterior y acepto participar</label>
+    </div>
+    <div id="onContact" hidden="">
+      <p id="onContactText" class="small" style="font-size:15px"></p>
+      <div class="row">
+        <label class="f">Nombre (opcional)<input type="text" id="onName" autocomplete="name" maxlength="100"></label>
+        <label class="f">Correo electrónico (opcional)<input type="email" id="onEmail" autocomplete="email" maxlength="150"></label>
+      </div>
+    </div>
+    <p class="msg err" id="onErr"></p>
+    <button class="primary" id="onStart">Comenzar</button>
+  </div>
+</div>
+
+<div id="stage" hidden=""><div id="stim"></div></div>
+
+<!-- =====================================================================
+     CONFIGURACIÓN INCLUIDA EN ESTE ARCHIVO
+     Se carga automáticamente al abrir la página. Formato: parametro;valor;descripcion
+     Puedes editarla aquí con un editor de texto, o ajustarla cargando un CSV y
+     pulsar «Guardar copia del HTML con esta configuración».
+     ===================================================================== -->
+<script type="text/plain" id="config-incluida">
+parametro;valor;descripcion
+tecla_palabra;a;"Tecla para PALABRA (asignación estándar; la invertida intercambia las dos)"
+tecla_no_palabra;l;Tecla para NO PALABRA. Admite letras, espacio o flecha_izquierda/flecha_derecha
+fijacion_ms;500;Duración del punto de fijación (ms)
+mascara1_ms;0;"Duración de la máscara (o blanco) ANTES del prime (ms; 0 = se omite)"
+prime_ms;250;Duración del prime (ms)
+mascara2_ms;0;"Duración de la máscara (o blanco) DESPUÉS del prime (ms; 0 = se omite)"
+target_ms;0;"Duración visible del target (ms; 0 = hasta la respuesta)"
+target_max_ms;3000;"Tiempo máximo para responder (ms; 0 = sin límite)"
+iti_ms;1000;Intervalo entre ensayos, pantalla en blanco (ms)
+simbolo_fijacion;+;Símbolo del punto de fijación
+mascara1;auto;"Máscara antes del prime: auto = caracteres según la palabra más larga; blanco = pantalla vacía; o un texto fijo (p. ej. #######)"
+mascara2;auto;Máscara después del prime (mismas opciones que mascara1)
+caracter_mascara;*;Carácter que usa la máscara auto
+color_fondo;#ffffff;Color de fondo (nombre o #hex)
+color_texto;#000000;Color del texto
+fuente;'Courier New', Courier, monospace;Tipo de letra (mejor monoespaciada si se usan máscaras)
+tamano_fijacion_px;40;Tamaño del punto de fijación (px)
+tamano_prime_px;40;Tamaño de letra del prime y las máscaras (px)
+tamano_target_px;40;Tamaño de letra del target (px)
+mayusculas_prime;no;Prime en mayúsculas (si/no)
+mayusculas_target;no;Target en mayúsculas (si/no)
+pantalla_completa;si;Pasar a pantalla completa al empezar (si/no)
+aleatorizar;si;"Aleatorizar el orden dentro de cada bloque (si/no; no = orden del CSV)"
+max_seguidos_misma_lexicalidad;3;Máximo de targets seguidos del mismo tipo (0 = sin restricción)
+feedback_practica;si;Feedback en la práctica (si/no)
+feedback_experimental;si;Feedback en los bloques experimentales (si/no)
+feedback_ms;800;Duración del feedback (ms)
+texto_feedback_correcto;¡Correcto!;Texto de feedback: acierto
+texto_feedback_error;Incorrecto;Texto de feedback: error
+texto_feedback_lento;¡Has sido muy lento!;Texto de feedback: sin respuesta a tiempo
+descanso_entre_bloques;no;"Descanso entre bloques experimentales; se continúa con la barra espaciadora (si/no)"
+descanso_cada;0;Pausa adicional cada N ensayos experimentales dentro de un bloque (0 = no)
+separador_salida;";";"Separador de columnas del archivo de datos (; para Excel en español)"
+decimal_salida;,;Separador decimal del archivo de datos
+modo_online;si;"si = el participante ve la pantalla de bienvenida y los datos se envían a DataPipe; no = panel del experimentador"
+datapipe_id;obzAbDSgyyNb;"ID del experimento en DataPipe (pipe.jspsych.org); se copia del panel del experimento"
+asignacion_teclas_online;aleatoria;"Asignación de teclas en modo online: estandar, invertida, aleatoria o datapipe (alterna por orden de llegada; configura 2 condiciones en DataPipe)"
+descarga_local_online;no;En modo online, descargar también el CSV en el ordenador del participante (si/no)
+texto_bienvenida;Gracias por tu interés en participar en esta prueba.\n\nSe trata de una versión breve de una tarea de reconocimiento de palabras. Dura aproximadamente 5 minutos. Necesitas un ordenador con teclado y un lugar tranquilo, sin distracciones.\n\nAntes de empezar, lee la información sobre el estudio y, si estás de acuerdo, marca la casilla de consentimiento.\n\nAl pulsar «Comenzar», la pantalla pasará a modo completo. No cierres la ventana hasta que la tarea te indique que has terminado.;Pantalla de bienvenida en modo online
+texto_consentimiento;HOJA DE INFORMACIÓN Y CONSENTIMIENTO INFORMADO\n\nTítulo del estudio: [COMPLETAR: título del estudio]\nInvestigador/a responsable: [COMPLETAR: nombre, departamento y universidad]\nContacto: [COMPLETAR: correo electrónico de contacto]\n\n1. Objetivo del estudio\nEste estudio forma parte de una investigación sobre cómo reconocemos las palabras escritas. [COMPLETAR: descripción adicional, si se desea]\n\n2. ¿En qué consiste tu participación?\nVerás en la pantalla series de letras y tendrás que decidir, pulsando una tecla, si forman una palabra del español. La tarea dura aproximadamente 5 minutos y se realiza desde tu propio ordenador.\n\n3. Participación voluntaria\nTu participación es totalmente voluntaria. Puedes abandonar la tarea en cualquier momento cerrando la ventana, sin tener que dar explicaciones y sin ninguna consecuencia. [COMPLETAR: compensación o créditos, si los hay]\n\n4. Riesgos y beneficios\nLa tarea no implica riesgos conocidos más allá del cansancio propio de mirar una pantalla durante unos minutos. No recibirás un beneficio directo, pero contribuirás al avance del conocimiento científico.\n\n5. Datos que se recogen\nSe registran tus respuestas y tiempos de reacción, un código de participante, la fecha, el tamaño de tu pantalla y el tipo de navegador. Si decides indicarlos, también se guardan tu nombre y tu correo electrónico, que son opcionales. [COMPLETAR: para qué se usarán el nombre y el correo]\n\n6. Confidencialidad y protección de datos\nTus datos se tratarán conforme al Reglamento (UE) 2016/679 (RGPD) y a la Ley Orgánica 3/2018, de Protección de Datos Personales y garantía de los derechos digitales. Los resultados se analizarán de forma agregada y nunca se publicará información que permita identificarte. Los datos se envían a [COMPLETAR: servicio de almacenamiento y ubicación] y se conservarán durante [COMPLETAR: plazo de conservación]. Responsable del tratamiento: [COMPLETAR]. Delegado/a de protección de datos: [COMPLETAR]. Puedes ejercer tus derechos de acceso, rectificación, supresión, oposición, limitación y portabilidad escribiendo a [COMPLETAR: correo], indicando tu nombre o tu correo electrónico.\n\n7. Aprobación ética\nEste estudio ha sido aprobado por [COMPLETAR: comité de ética, código y fecha de aprobación].\n\nAl marcar la casilla de abajo declaras que eres mayor de edad, que has leído y comprendido esta información y que aceptas participar de forma voluntaria.;Hoja de información y consentimiento (vacío = no se muestra). Si hay texto, hay que marcar la casilla para empezar
+texto_final_online;Has terminado la prueba y tus respuestas se han guardado correctamente.\n\n¡Muchas gracias por tu participación!\n\nYa puedes cerrar esta ventana.;Pantalla final en modo online cuando los datos se han enviado bien
+prefijo_archivo;LDT_prueba36;Inicio del nombre de los archivos de datos (p. ej. LDT_priming o LDT_prueba)
+pedir_contacto;si;"Mostrar campos opcionales de nombre y correo en la bienvenida online (si/no); se guardan en el archivo de datos"
+texto_contacto;Si lo deseas, puedes dejarnos tu nombre y tu correo electrónico [COMPLETAR: para qué, p. ej. para informarte de los resultados]. Son opcionales: puedes participar sin rellenarlos.;Texto que acompaña a los campos de nombre y correo
+texto_error_envio;Has terminado la tarea, pero no se han podido enviar tus respuestas (posible problema de conexión).\n\nPor favor, pulsa el botón para descargar el archivo y envíaselo a la persona responsable del estudio.;Pantalla si falla el envío (aparece un botón para descargar los datos)
+texto_instrucciones;"INSTRUCCIONES (1 de 4)\n\nEn esta tarea vas a ver series de letras en el centro de la pantalla. Algunas forman palabras que existen en español (por ejemplo, «lápiz») y otras no existen (por ejemplo, «dorbente»).\n\nTu tarea consiste en decidir, lo más rápido posible y sin equivocarte, si cada serie de letras es una palabra del español o no.\n\nPulsa la BARRA ESPACIADORA para continuar.[PAGINA]INSTRUCCIONES (2 de 4)\n\nCada ensayo sigue siempre el mismo orden:\n\n1. Aparece una cruz (+) en el centro de la pantalla. Mira fijamente a la cruz.\n2. Aparece muy brevemente una primera serie de letras. NO tienes que responder a ella; solo mírala.\n3. Justo después aparece una segunda serie de letras. ESTA es la que tienes que juzgar.\n\nPulsa la BARRA ESPACIADORA para continuar.[PAGINA]INSTRUCCIONES (3 de 4)\n\nSi la segunda serie de letras es una PALABRA, pulsa la tecla {PALABRA}.\nSi NO es una palabra, pulsa la tecla {NO_PALABRA}.\n\nColoca ahora un dedo sobre la tecla {PALABRA} y otro sobre la tecla {NO_PALABRA}, y mantenlos ahí durante toda la tarea.\n\nPulsa la BARRA ESPACIADORA para continuar.[PAGINA]INSTRUCCIONES (4 de 4)\n\nTienes un máximo de 3 segundos para responder. Después de cada respuesta verás un mensaje:\n\n«¡Correcto!» si has acertado.\n«Incorrecto» si te has equivocado.\n«¡Has sido muy lento!» si no respondes a tiempo.\n\nIntenta responder rápido, pero sin cometer errores. La prueba tiene 36 ensayos.\n\nPALABRA = tecla {PALABRA}     NO PALABRA = tecla {NO_PALABRA}\n\nCuando estés preparado/a, pulsa la BARRA ESPACIADORA para empezar.";"Instrucciones iniciales. {PALABRA} y {NO_PALABRA} = teclas; \n = salto de línea"
+texto_inicio_practica;Vamos a empezar con unos ensayos de práctica.\n\nPALABRA = tecla {PALABRA}\nNO PALABRA = tecla {NO_PALABRA}\n\nPulsa la BARRA ESPACIADORA para empezar.;Pantalla antes de la práctica
+texto_fin_practica;Has terminado la práctica.\n\nA partir de ahora comienza el experimento.\n\nPALABRA = tecla {PALABRA}\nNO PALABRA = tecla {NO_PALABRA}\n\nPulsa la BARRA ESPACIADORA para comenzar.;Pantalla entre la práctica y el experimento
+texto_descanso;Has terminado el bloque {BLOQUE} de {N_BLOQUES}.\n\nPuedes descansar unos segundos.\n\nPALABRA = tecla {PALABRA}\nNO PALABRA = tecla {NO_PALABRA}\n\nPulsa la BARRA ESPACIADORA cuando quieras continuar.;"Pantalla de descanso entre bloques. {BLOQUE} = bloque terminado; {N_BLOQUES} = total de bloques experimentales"
+texto_pausa;Puedes descansar unos segundos.\n\nPALABRA = tecla {PALABRA}\nNO PALABRA = tecla {NO_PALABRA}\n\nPulsa la BARRA ESPACIADORA cuando quieras continuar.;Pantalla de las pausas de descanso_cada
+texto_final;Has terminado la tarea.\n\n¡Muchas gracias por tu participación!\n\nAvisa a la persona responsable del experimento.;Pantalla final (modo local)
+</script>
+
+<!-- ENSAYOS INCLUIDOS (opcional). Mismo formato que el CSV de ensayos.
+     Si está vacío, hay que cargar el CSV de ensayos cada vez. -->
+<script type="text/plain" id="ensayos-incluidos">
+ensayo_id;bloque;practica;prime;target;lexicalidad;valencia_prime;valencia_target;combinacion;congruencia;prime_valencia_M;prime_arousal_M;prime_id_martinez_tomas;target_valencia_M;target_arousal_M;target_id_guasch;target_id_martinez_tomas;repeticiones
+pr_01;prueba;no;jamonado;valiente;palabra;Alta;Alta;PAlta_TAlta;congruente;6,73;5,36;20209;7,68;5,4;1357;;1
+pr_02;prueba;no;educanza;caricia;palabra;Alta;Alta;PAlta_TAlta;congruente;6,24;4,5;20504;8,1;4,15;239;;1
+pr_03;prueba;no;libreza;mercado;palabra;Alta;Neutra;PAlta_TNeutra;mixta_neutra;6,41;4,48;20617;5;5,14;898;;1
+pr_04;prueba;no;playora;corredor;palabra;Alta;Neutra;PAlta_TNeutra;mixta_neutra;6,81;3,88;20297;4,82;4,91;369;;1
+pr_05;prueba;no;cantario;condena;palabra;Alta;Baja;PAlta_TBaja;incongruente;6,11;4,04;20059;2,48;6,23;341;;1
+pr_06;prueba;no;floredor;martirio;palabra;Alta;Baja;PAlta_TBaja;incongruente;6,44;3,68;20145;2,19;6,15;873;;1
+pr_07;prueba;no;voltoda;aptitud;palabra;Neutra;Alta;PNeutra_TAlta;mixta_neutra;4,64;4,85;30797;7,4;5,18;94;;1
+pr_08;prueba;no;fijadura;acierto;palabra;Neutra;Alta;PNeutra_TAlta;mixta_neutra;4,77;5,52;20541;7,8;5,45;22;;1
+pr_09;prueba;no;plenazgo;jubiloso;palabra;Neutra;Neutra;PNeutra_TNeutra;congruente;4,93;4,4;20298;5,09;5,18;769;;1
+pr_10;prueba;no;afrondad;amante;palabra;Neutra;Neutra;PNeutra_TNeutra;congruente;5,04;4,19;41073;4,95;6,09;66;;1
+pr_11;prueba;no;argantía;inseguro;palabra;Neutra;Baja;PNeutra_TBaja;mixta_neutra;5;4,15;40156;3;5,65;740;;1
+pr_12;prueba;no;refugazo;ausencia;palabra;Neutra;Baja;PNeutra_TBaja;mixta_neutra;5,03;5,04;21119;2,33;4,59;132;;1
+pr_13;prueba;no;nomnisio;galardón;palabra;Baja;Alta;PBaja_TAlta;incongruente;2,92;3,88;41012;7,75;6;627;;1
+pr_14;prueba;no;soldedad;banquete;palabra;Baja;Alta;PBaja_TAlta;incongruente;2,88;4,88;21151;7,29;4,9;155;;1
+pr_15;prueba;no;diputoña;difusión;palabra;Baja;Neutra;PBaja_TNeutra;mixta_neutra;3;4,71;30928;5,27;5,3;457;;1
+pr_16;prueba;no;ansidura;tijeras;palabra;Baja;Neutra;PBaja_TNeutra;mixta_neutra;2,69;5,38;20830;4,9;5,29;1307;;1
+pr_17;prueba;no;mutadura;bacteria;palabra;Baja;Baja;PBaja_TBaja;congruente;2,81;4,77;21050;3;5,19;145;;1
+pr_18;prueba;no;ñugroda;asustado;palabra;Baja;Baja;PBaja_TBaja;congruente;2,96;3,73;50986;2,7;6,1;120;;1
+pr_19;prueba;no;libredad;glupón;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,04;4,84;20226;4,85;4,58;;41104;1
+pr_20;prueba;no;ayudario;sucalear;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,43;4,4;20038;5,07;5,04;;50888;1
+pr_21;prueba;no;honradra;karatreo;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,04;4,23;30180;4,85;4,48;;30215;1
+pr_22;prueba;no;novianza;sudadeño;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,52;5,36;20265;4,82;4,19;;20357;1
+pr_23;prueba;no;alabería;sonajade;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,07;4,08;20016;5;4,36;;30354;1
+pr_24;prueba;no;dinerón;rapidar;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,73;6,37;20103;5,21;4,69;;20316;1
+pr_25;prueba;no;zapatoda;odapción;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5;4,32;30799;4,87;4,8;;40411;1
+pr_26;prueba;no;colgoria;mayorro;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;4,79;4,96;30466;4,77;4,33;;30634;1
+pr_27;prueba;no;listejo;buceista;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5;4,33;20623;4,89;5,08;;20051;1
+pr_28;prueba;no;atentero;cheflazo;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,1;4,12;20844;5,14;4,88;;40973;1
+pr_29;prueba;no;ciranza;yojero;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,22;4,84;40087;5,33;4,12;;40212;1
+pr_30;prueba;no;patinora;llisón;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,04;4,4;20285;4,48;4,12;;40350;1
+pr_31;prueba;no;trahegia;leñario;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,93;3,89;50988;4,74;4,96;;20615;1
+pr_32;prueba;no;puñaliza;omipía;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,68;6,08;21106;4,52;4,68;;41042;1
+pr_33;prueba;no;tistreza;bañerío;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,96;4,88;41182;5,11;4,68;;20041;1
+pr_34;prueba;no;lagrimío;societro;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,96;5,42;21022;5,04;4,15;;30755;1
+pr_35;prueba;no;cobardra;llahazgo;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;3;4,12;30889;4,93;4;;40171;1
+pr_36;prueba;no;obesista;vallero;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,8;5,32;21062;5,19;4,12;;40625;1
+</script>
+
+<script>
+'use strict';
+
+/* =====================================================================
+   VALORES POR DEFECTO
+   Todos se pueden sobrescribir con el CSV de configuración (parametro;valor).
+   Los parámetros de tiempo (…_ms) también se pueden fijar ensayo a ensayo
+   con columnas del mismo nombre en el CSV de ensayos.
+   ===================================================================== */
+const DEFAULTS = {
+  // Teclas (asignación estándar; "invertida" las intercambia)
+  tecla_palabra: 'a',
+  tecla_no_palabra: 'l',
+
+  // Tiempos (ms) — PROVISIONALES: ajústalos a vuestro diseño
+  fijacion_ms: 500,      // punto de fijación
+  mascara1_ms: 100,      // máscara (o blanco) antes del prime
+  prime_ms: 200,         // duración del prime
+  mascara2_ms: 50,       // máscara (o blanco) entre prime y target
+  target_ms: 0,          // duración visible del target (0 = hasta la respuesta)
+  target_max_ms: 2000,   // tiempo máximo para responder (0 = sin límite)
+  iti_ms: 1000,          // intervalo entre ensayos (pantalla en blanco)
+
+  // Aparición
+  simbolo_fijacion: '+',
+  mascara1: 'auto',      // auto = caracter_mascara repetido tantas veces como letras tenga
+  mascara2: 'auto',      //   la palabra más larga (prime o target); vacío = pantalla en blanco;
+                         //   cualquier otro texto se muestra tal cual (p. ej. #######)
+  caracter_mascara: '*',
+  color_fondo: '#ffffff',
+  color_texto: '#000000',
+  fuente: "'Courier New', Courier, monospace",   // monoespaciada: la máscara ocupa lo mismo que la palabra
+  tamano_fijacion_px: 40,
+  tamano_prime_px: 40,
+  tamano_target_px: 40,
+  mayusculas_prime: 'no',
+  mayusculas_target: 'no',
+  pantalla_completa: 'si',
+
+  // Orden de los ensayos
+  aleatorizar: 'si',                    // aleatoriza dentro de cada bloque
+  max_seguidos_misma_lexicalidad: 3,    // 0 = sin restricción
+
+  // Feedback
+  feedback_practica: 'si',
+  feedback_experimental: 'no',
+  feedback_ms: 800,
+  texto_feedback_correcto: '¡Correcto!',
+  texto_feedback_error: 'Error',
+  texto_feedback_lento: '¡Demasiado lento!',
+
+  // Descansos
+  descanso_entre_bloques: 'si',
+  descanso_cada: 0,      // descanso cada N ensayos experimentales (0 = no)
+
+  // Archivo de salida
+  separador_salida: ';',
+  decimal_salida: ',',
+
+  // Modo online (DataPipe). Con modo_online = si, el participante ve una pantalla de
+  // bienvenida en lugar del panel del experimentador (añade ?admin=1 a la URL para verlo).
+  modo_online: 'no',
+  datapipe_id: '',                       // ID del experimento en pipe.jspsych.org
+  asignacion_teclas_online: 'aleatoria', // estandar | invertida | aleatoria | datapipe
+  descarga_local_online: 'no',           // además de enviar, descargar el CSV en el ordenador del participante
+  texto_bienvenida:
+    'Gracias por tu interés en participar en este estudio.\n\n' +
+    'La tarea dura aproximadamente [COMPLETAR: duración] minutos. Necesitas un ordenador con teclado y un lugar tranquilo, sin distracciones.\n\n' +
+    'Al pulsar «Comenzar», la pantalla pasará a modo completo. No cierres la ventana hasta que la tarea te indique que has terminado.',
+  texto_consentimiento: '',              // vacío = no se muestra; si hay texto, el participante debe aceptarlo
+  texto_final_online:
+    'Has terminado la tarea y tus respuestas se han guardado correctamente.\n\n¡Muchas gracias por tu participación!\n\nYa puedes cerrar esta ventana.',
+  prefijo_archivo: 'LDT_priming',       // inicio del nombre de los archivos de datos
+  pedir_contacto: 'no',                  // si = el participante puede dejar nombre y correo (opcionales)
+  texto_contacto:
+    'Si lo deseas, puedes dejarnos tu nombre y tu correo electrónico. Son opcionales: puedes participar sin rellenarlos.',
+  texto_error_envio:
+    'Has terminado la tarea, pero no se han podido enviar tus respuestas (posible problema de conexión).\n\n' +
+    'Por favor, pulsa el botón para descargar el archivo y envíaselo a la persona responsable del estudio.',
+
+  // Textos ({PALABRA} y {NO_PALABRA} se sustituyen por las teclas; \n = salto de línea)
+  texto_instrucciones:
+    'En esta tarea verás una cruz (+) en el centro de la pantalla. Mantén la mirada en ella.\n\n' +
+    'Después aparecerá brevemente una palabra y, a continuación, una serie de letras.\n\n' +
+    'Tu tarea es decidir, lo más rápido y con la mayor precisión posible, si esas letras forman una palabra que existe en español.\n\n' +
+    'Si es una PALABRA, pulsa la tecla {PALABRA}.\nSi NO es una palabra, pulsa la tecla {NO_PALABRA}.\n\n' +
+    'Pulsa la BARRA ESPACIADORA para continuar.',
+  texto_inicio_practica:
+    'Vamos a empezar con unos ensayos de práctica.\n\n' +
+    'PALABRA = tecla {PALABRA}\nNO PALABRA = tecla {NO_PALABRA}\n\n' +
+    'Pulsa la BARRA ESPACIADORA para empezar.',
+  texto_fin_practica:
+    'Has terminado la práctica.\n\nA partir de ahora comienza el experimento.\n\n' +
+    'PALABRA = tecla {PALABRA}\nNO PALABRA = tecla {NO_PALABRA}\n\n' +
+    'Pulsa la BARRA ESPACIADORA para comenzar.',
+  texto_descanso:
+    'Has terminado el bloque {BLOQUE} de {N_BLOQUES}.\n\nPuedes descansar unos segundos.\n\nPALABRA = tecla {PALABRA}\nNO PALABRA = tecla {NO_PALABRA}\n\n' +
+    'Pulsa la BARRA ESPACIADORA cuando quieras continuar.',
+  texto_pausa:
+    'Puedes descansar unos segundos.\n\nPALABRA = tecla {PALABRA}\nNO PALABRA = tecla {NO_PALABRA}\n\n' +
+    'Pulsa la BARRA ESPACIADORA cuando quieras continuar.',
+  texto_final:
+    'Has terminado la tarea.\n\n¡Muchas gracias por tu participación!\n\nAvisa a la persona responsable del experimento.'
+};
+
+const DESCRIPCIONES = {
+  tecla_palabra: 'Tecla para PALABRA (asignación estándar; la invertida intercambia las dos)',
+  tecla_no_palabra: 'Tecla para NO PALABRA. Admite letras, espacio o flecha_izquierda/flecha_derecha',
+  fijacion_ms: 'Duración del punto de fijación (ms)',
+  mascara1_ms: 'Duración de la máscara (o blanco) ANTES del prime (ms; 0 = se omite)',
+  prime_ms: 'Duración del prime (ms)',
+  mascara2_ms: 'Duración de la máscara (o blanco) DESPUÉS del prime (ms; 0 = se omite)',
+  target_ms: 'Duración visible del target (ms; 0 = hasta la respuesta)',
+  target_max_ms: 'Tiempo máximo para responder (ms; 0 = sin límite)',
+  iti_ms: 'Intervalo entre ensayos, pantalla en blanco (ms)',
+  simbolo_fijacion: 'Símbolo del punto de fijación',
+  mascara1: 'Máscara antes del prime: auto = caracteres según la palabra más larga; blanco = pantalla vacía; o un texto fijo (p. ej. #######)',
+  mascara2: 'Máscara después del prime (mismas opciones que mascara1)',
+  caracter_mascara: 'Carácter que usa la máscara auto',
+  color_fondo: 'Color de fondo (nombre o #hex)',
+  color_texto: 'Color del texto',
+  fuente: 'Tipo de letra (mejor monoespaciada si se usan máscaras)',
+  tamano_fijacion_px: 'Tamaño del punto de fijación (px)',
+  tamano_prime_px: 'Tamaño de letra del prime y las máscaras (px)',
+  tamano_target_px: 'Tamaño de letra del target (px)',
+  mayusculas_prime: 'Prime en mayúsculas (si/no)',
+  mayusculas_target: 'Target en mayúsculas (si/no)',
+  pantalla_completa: 'Pasar a pantalla completa al empezar (si/no)',
+  aleatorizar: 'Aleatorizar el orden dentro de cada bloque (si/no; no = orden del CSV)',
+  max_seguidos_misma_lexicalidad: 'Máximo de targets seguidos del mismo tipo (0 = sin restricción)',
+  feedback_practica: 'Feedback en la práctica (si/no)',
+  feedback_experimental: 'Feedback en los bloques experimentales (si/no)',
+  feedback_ms: 'Duración del feedback (ms)',
+  texto_feedback_correcto: 'Texto de feedback: acierto',
+  texto_feedback_error: 'Texto de feedback: error',
+  texto_feedback_lento: 'Texto de feedback: sin respuesta a tiempo',
+  descanso_entre_bloques: 'Descanso entre bloques experimentales; se continúa con la barra espaciadora (si/no)',
+  descanso_cada: 'Pausa adicional cada N ensayos experimentales dentro de un bloque (0 = no)',
+  separador_salida: 'Separador de columnas del archivo de datos (; para Excel en español)',
+  decimal_salida: 'Separador decimal del archivo de datos',
+  texto_instrucciones: 'Instrucciones iniciales. {PALABRA} y {NO_PALABRA} = teclas; \\n = salto de línea',
+  texto_inicio_practica: 'Pantalla antes de la práctica',
+  texto_fin_practica: 'Pantalla entre la práctica y el experimento',
+  texto_descanso: 'Pantalla de descanso entre bloques. {BLOQUE} = bloque terminado; {N_BLOQUES} = total de bloques experimentales',
+  texto_pausa: 'Pantalla de las pausas de descanso_cada',
+  texto_final: 'Pantalla final (modo local)',
+  modo_online: 'si = el participante ve la pantalla de bienvenida y los datos se envían a DataPipe; no = panel del experimentador',
+  datapipe_id: 'ID del experimento en DataPipe (pipe.jspsych.org); se copia del panel del experimento',
+  asignacion_teclas_online: 'Asignación de teclas en modo online: estandar, invertida, aleatoria o datapipe (alterna por orden de llegada; configura 2 condiciones en DataPipe)',
+  descarga_local_online: 'En modo online, descargar también el CSV en el ordenador del participante (si/no)',
+  texto_bienvenida: 'Pantalla de bienvenida en modo online',
+  texto_consentimiento: 'Hoja de información y consentimiento (vacío = no se muestra). Si hay texto, hay que marcar la casilla para empezar',
+  texto_final_online: 'Pantalla final en modo online cuando los datos se han enviado bien',
+  texto_error_envio: 'Pantalla si falla el envío (aparece un botón para descargar los datos)',
+  prefijo_archivo: 'Inicio del nombre de los archivos de datos (p. ej. LDT_priming o LDT_prueba)',
+  pedir_contacto: 'Mostrar campos opcionales de nombre y correo en la bienvenida online (si/no); se guardan en el archivo de datos',
+  texto_contacto: 'Texto que acompaña a los campos de nombre y correo'
+};
+function configToCSV(cfg) {
+  const q = v => { v = String(v ?? '').replace(/\r?\n/g, '\\n'); return /[;"]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
+  return ['parametro;valor;descripcion', ...Object.keys(DEFAULTS).map(k => [k, cfg[k], DESCRIPCIONES[k] || ''].map(q).join(';'))].join('\n');
+}
+
+const TIMING_KEYS = ['fijacion_ms','mascara1_ms','prime_ms','mascara2_ms','target_ms','target_max_ms','iti_ms'];
+const CTRL_COLS = new Set(['repeticiones','practica','bloque', ...TIMING_KEYS]);
+const LS_KEY = 'ldt_priming_ultima_sesion';
+
+const ORIGINAL_HTML = '<!doctype html>\n' + document.documentElement.outerHTML;
+let CFG = { ...DEFAULTS };
+let cfgWarnings = [];
+let trialData = null;            // {rows, errors, warnings, headers}
+let frameMs = 1000 / 60, refreshHz = 60;
+let aborted = false;
+let lastDownload = null;
+
+const $ = id => document.getElementById(id);
+const stage = $('stage'), stim = $('stim');
+
+/* ---------------- utilidades ---------------- */
+const norm = s => String(s ?? '').trim().toLowerCase()
+  .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[\s\-]+/g, '_');
+const ALIASES = { blanco1_ms: 'mascara1_ms', blanco2_ms: 'mascara2_ms' };
+const normCol = s => { const n = norm(s); return ALIASES[n] || n; };
+const isTrue = v => ['si','yes','true','1','s','y','verdadero'].includes(norm(v));
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const num = v => { const n = Number(String(v).trim().replace(',', '.')); return Number.isFinite(n) ? n : NaN; };
+const nextFrame = () => new Promise(r => requestAnimationFrame(r));
+
+function keyName(k) { return k === ' ' ? 'ESPACIO' : (k.length === 1 ? k.toUpperCase() : k); }
+function cfgKey(v) {
+  const s = String(v ?? '').trim();
+  const n = norm(s);
+  if (n === 'espacio' || n === 'space') return ' ';
+  if (s.length === 1) return s.toLowerCase();
+  const map = { flecha_izquierda:'arrowleft', flecha_derecha:'arrowright', flecha_arriba:'arrowup', flecha_abajo:'arrowdown' };
+  return map[n] || s.toLowerCase();
+}
+const evKey = e => (e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase());
+
+function currentKeys() {
+  let w = cfgKey(CFG.tecla_palabra), nw = cfgKey(CFG.tecla_no_palabra);
+  if ($('mapping').value === 'invertida') [w, nw] = [nw, w];
+  return { w, nw };
+}
+function fillText(t, extra = {}) {
+  const { w, nw } = currentKeys();
+  let out = String(t).replace(/\\n/g, '\n')
+    .replace(/\{PALABRA\}/g, keyName(w)).replace(/\{NO_PALABRA\}/g, keyName(nw));
+  for (const [k, v] of Object.entries(extra)) out = out.split(`{${k}}`).join(String(v));
+  return out;
+}
+
+/* ---------------- lectura de CSV ---------------- */
+function readFileText(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onerror = rej;
+    r.onload = () => {
+      const t = r.result;
+      if (!t.includes('�')) return res(t.replace(/^﻿/, ''));
+      // No era UTF-8 (típico de Excel "CSV" en Windows/Mac): reintentar como Windows-1252
+      const r2 = new FileReader();
+      r2.onerror = rej;
+      r2.onload = () => res(r2.result.replace(/^﻿/, ''));
+      r2.readAsText(file, 'windows-1252');
+    };
+    r.readAsText(file, 'utf-8');
+  });
+}
+function detectDelimiter(text) {
+  const first = text.split(/\r?\n/).find(l => l.trim() !== '') || '';
+  const c = { ';':0, ',':0, '\t':0 }; let q = false;
+  for (const ch of first) { if (ch === '"') q = !q; else if (!q && ch in c) c[ch]++; }
+  const best = Object.entries(c).sort((a, b) => b[1] - a[1])[0];
+  return best[1] > 0 ? best[0] : ',';
+}
+function parseCSV(text) {
+  const d = detectDelimiter(text);
+  const rows = []; let row = [], f = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; }
+      else f += c;
+    } else if (c === '"') q = true;
+    else if (c === d) { row.push(f); f = ''; }
+    else if (c === '\n') { row.push(f); rows.push(row); row = []; f = ''; }
+    else if (c !== '\r') f += c;
+  }
+  if (f !== '' || row.length) { row.push(f); rows.push(row); }
+  return rows.filter(r => r.some(x => x.trim() !== ''));
+}
+
+/* ---------------- configuración ---------------- */
+function applyConfig(rows) {
+  CFG = { ...DEFAULTS }; cfgWarnings = [];
+  if (!rows) return;
+  let start = 0;
+  if (rows.length && ['parametro','parameter'].includes(norm(rows[0][0]))) start = 1;
+  for (let i = start; i < rows.length; i++) {
+    const key = normCol(rows[i][0]); const val = (rows[i][1] ?? '').trim();
+    if (!key) continue;
+    if (!(key in DEFAULTS)) { cfgWarnings.push(`Configuración, fila ${i + 1}: parámetro desconocido «${rows[i][0]}» (se ignora).`); continue; }
+    if (typeof DEFAULTS[key] === 'number') {
+      const n = num(val);
+      if (Number.isNaN(n) || n < 0) { cfgWarnings.push(`Configuración: «${key}» debe ser un número ≥ 0 (valor «${val}»); se usa ${DEFAULTS[key]}.`); continue; }
+      CFG[key] = n;
+    } else CFG[key] = val;
+  }
+}
+
+/* ---------------- ensayos ---------------- */
+function normLex(v) {
+  const s = norm(v);
+  if (['palabra','word','w','1','si','p','real'].includes(s)) return 'palabra';
+  if (['no_palabra','nopalabra','pseudopalabra','pseudo','nonword','non_word','pw','nw','0','no','np'].includes(s)) return 'no_palabra';
+  return null;
+}
+function validateTrials(rows) {
+  const errors = [], warnings = [];
+  if (!rows || rows.length < 2) return { rows: [], errors: ['El CSV de ensayos está vacío o solo tiene cabecera.'], warnings, headers: [] };
+  const headers = rows[0].map(normCol);
+  const dup = headers.filter((h, i) => h && headers.indexOf(h) !== i);
+  if (dup.length) errors.push(`Columnas repetidas: ${[...new Set(dup)].join(', ')}.`);
+  for (const req of ['prime','target','lexicalidad'])
+    if (!headers.includes(req)) errors.push(`Falta la columna obligatoria «${req}».`);
+  if (errors.length) return { rows: [], errors, warnings, headers };
+  const out = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = {}; headers.forEach((h, j) => { if (h) r[h] = (rows[i][j] ?? '').trim(); });
+    const line = i + 1;
+    r._fila = line;
+    if (!r.target) errors.push(`Fila ${line}: target vacío.`);
+    if (!r.prime) warnings.push(`Fila ${line}: prime vacío (se mostrará pantalla en blanco).`);
+    r._lex = normLex(r.lexicalidad);
+    if (!r._lex) errors.push(`Fila ${line}: lexicalidad «${r.lexicalidad}» no reconocida (usa palabra / no_palabra).`);
+    for (const k of TIMING_KEYS) if (r[k] !== undefined && r[k] !== '') {
+      const n = num(r[k]); if (Number.isNaN(n) || n < 0) errors.push(`Fila ${line}: ${k} = «${r[k]}» no es un número ≥ 0.`);
+    }
+    if (r.repeticiones !== undefined && r.repeticiones !== '') {
+      const n = num(r.repeticiones);
+      if (!Number.isInteger(n) || n < 0) errors.push(`Fila ${line}: repeticiones = «${r.repeticiones}» debe ser un entero ≥ 0.`);
+    }
+    out.push(r);
+  }
+  return { rows: out, errors, warnings, headers };
+}
+function timingOf(r) {
+  const t = {};
+  for (const k of TIMING_KEYS) t[k] = (r[k] !== undefined && r[k] !== '') ? num(r[k]) : CFG[k];
+  return t;
+}
+
+function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+function constrainedShuffle(arr, maxRun) {
+  if (!maxRun) return { list: shuffle(arr.slice()), ok: true };
+  for (let attempt = 0; attempt < 2000; attempt++) {
+    const pool = shuffle(arr.slice()), out = []; let fail = false;
+    while (pool.length) {
+      let idx = -1;
+      for (let i = 0; i < pool.length; i++) {
+        let run = 1;
+        for (let j = out.length - 1; j >= 0 && out[j]._lex === pool[i]._lex; j--) run++;
+        if (run <= maxRun) { idx = i; break; }
+      }
+      if (idx < 0) { fail = true; break; }
+      out.push(pool.splice(idx, 1)[0]);
+    }
+    if (!fail) return { list: out, ok: true };
+  }
+  return { list: shuffle(arr.slice()), ok: false };
+}
+function buildBlocks(rows, testMode) {
+  const groups = [], index = new Map(), warnings = [];
+  for (const r of rows) {
+    const reps = (r.repeticiones !== undefined && r.repeticiones !== '') ? num(r.repeticiones) : 1;
+    const prac = isTrue(r.practica);
+    const b = (r.bloque || '').trim() || (prac ? 'practica' : '1');
+    const key = (prac ? 'P|' : 'E|') + b;
+    if (!index.has(key)) { index.set(key, groups.length); groups.push({ practica: prac, bloque: b, trials: [] }); }
+    for (let k = 0; k < reps; k++) groups[index.get(key)].trials.push(r);
+  }
+  const blocks = [...groups.filter(g => g.practica), ...groups.filter(g => !g.practica)];
+  for (const g of blocks) {
+    if (isTrue(CFG.aleatorizar)) {
+      const res = constrainedShuffle(g.trials, CFG.max_seguidos_misma_lexicalidad);
+      g.trials = res.list;
+      if (!res.ok) warnings.push(`Bloque «${g.bloque}»: no se pudo cumplir la restricción de ${CFG.max_seguidos_misma_lexicalidad} seguidos; se usa un orden aleatorio simple.`);
+    }
+    if (testMode) g.trials = g.trials.slice(0, 3);
+  }
+  return { blocks: blocks.filter(g => g.trials.length), warnings };
+}
+
+/* ---------------- interfaz de preparación ---------------- */
+function renderSetup() {
+  const msgs = [], { w, nw } = currentKeys();
+  $('mappingInfo').textContent = `PALABRA = ${keyName(w)} · NO PALABRA = ${keyName(nw)}`;
+  cfgWarnings.forEach(m => msgs.push(['warn', m]));
+  let ok = false, html = '';
+  if (trialData) {
+    trialData.errors.forEach(m => msgs.push(['err', m]));
+    trialData.warnings.slice(0, 15).forEach(m => msgs.push(['warn', m]));
+    if (trialData.warnings.length > 15) msgs.push(['warn', `… y ${trialData.warnings.length - 15} avisos más.`]);
+    if (!trialData.errors.length) {
+      ok = true;
+      // resumen por fase × lexicalidad × congruencia
+      const hasCong = trialData.headers.includes('congruencia');
+      const counts = {}, blocks = new Map();
+      let nP = 0, nE = 0;
+      for (const r of trialData.rows) {
+        const reps = (r.repeticiones !== undefined && r.repeticiones !== '') ? num(r.repeticiones) : 1;
+        const prac = isTrue(r.practica);
+        const fase = prac ? 'Práctica' : 'Experimental';
+        const b = (r.bloque || '').trim() || (prac ? 'practica' : '1');
+        const k = `${fase}|${r._lex === 'palabra' ? 'Palabra' : 'No palabra'}|${hasCong ? (r.congruencia || '(vacío)') : '—'}`;
+        counts[k] = (counts[k] || 0) + reps;
+        blocks.set(`${fase}|${b}`, (blocks.get(`${fase}|${b}`) || 0) + reps);
+        if (prac) nP += reps; else nE += reps;
+      }
+      msgs.push(['ok', `CSV cargado: ${trialData.rows.length} filas → ${nP} ensayos de práctica y ${nE} experimentales.`]);
+      html += '<table><tr><th>Fase</th><th>Target</th><th>Congruencia</th><th>N</th></tr>' +
+        Object.entries(counts).sort().map(([k, n]) => `<tr>${k.split('|').map(x => `<td>${esc(x)}</td>`).join('')}<td>${n}</td></tr>`).join('') + '</table>';
+      html += '<table><tr><th>Fase</th><th>Bloque</th><th>Ensayos</th></tr>' +
+        [...blocks].map(([k, n]) => `<tr>${k.split('|').map(x => `<td>${esc(x)}</td>`).join('')}<td>${n}</td></tr>`).join('') + '</table>';
+      if (!hasCong) msgs.push(['warn', 'No hay columna «congruencia»: el tipo de priming no quedará codificado en los datos.']);
+      // tiempos frente a la frecuencia de refresco
+      const used = new Map();
+      for (const r of trialData.rows) { const t = timingOf(r); for (const k of ['fijacion_ms','mascara1_ms','prime_ms','mascara2_ms','target_ms']) if (t[k] > 0) used.set(`${k}=${t[k]}`, [k, t[k]]); }
+      for (const [, [k, ms]] of used) {
+        const frames = Math.max(1, Math.round(ms / frameMs)), real = frames * frameMs;
+        if (Math.abs(real - ms) > 2) msgs.push(['warn', `${k} = ${ms} ms no es múltiplo del refresco de esta pantalla (${frameMs.toFixed(1)} ms): se presentará ≈ ${real.toFixed(1)} ms (${frames} frames).`]);
+      }
+    }
+  }
+  $('sources').innerHTML = `Ensayos en uso: <b>${esc(trialSource)}</b> · Configuración en uso: <b>${esc(configSource)}</b>`;
+  $('msgs').innerHTML = msgs.map(([c, m]) => `<p class="msg ${c}">${esc(m)}</p>`).join('');
+  $('summary').innerHTML = html;
+  $('btnStart').disabled = !(ok && $('pid').value.trim());
+  try { $('btnRecover').hidden = !localStorage.getItem(LS_KEY); } catch (e) { $('btnRecover').hidden = true; }
+}
+
+let trialText = null, configText = null;
+let trialSource = 'ninguno', configSource = 'valores por defecto';
+{
+  const ec = ($('config-incluida').textContent || '').trim();
+  const et = ($('ensayos-incluidos').textContent || '').trim();
+  if (ec) { configText = ec; configSource = 'incluida en este archivo HTML'; }
+  if (et) { trialText = et; trialSource = 'incluidos en este archivo HTML'; }
+}
+async function reloadAll() {
+  applyConfig(configText ? parseCSV(configText) : null);
+  trialData = trialText ? validateTrials(parseCSV(trialText)) : null;
+  renderSetup();
+}
+$('fTrials').addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return; trialText = await readFileText(f); trialSource = `archivo «${f.name}»`; reloadAll(); });
+$('fConfig').addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return; configText = await readFileText(f); configSource = `archivo «${f.name}»`; reloadAll(); });
+['pid','mapping'].forEach(id => $(id).addEventListener('input', renderSetup));
+$('mapping').addEventListener('change', renderSetup);
+
+async function measureRefresh(n = 90) {
+  const ts = []; for (let i = 0; i <= n; i++) ts.push(await nextFrame());
+  const d = ts.slice(1).map((t, i) => t - ts[i]).sort((a, b) => a - b);
+  frameMs = d[Math.floor(d.length / 2)]; refreshHz = 1000 / frameMs;
+  $('refreshInfo').textContent = `Frecuencia de refresco medida: ${refreshHz.toFixed(1)} Hz (${frameMs.toFixed(2)} ms por frame). Los tiempos se redondean a frames completos.`;
+}
+
+/* ---------------- salida de datos ---------------- */
+let SESSION = null;
+function saveBackup() { try { localStorage.setItem(LS_KEY, JSON.stringify(SESSION)); } catch (e) {} }
+function fmt(v, dec) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'number') return Number.isInteger(v) ? String(v) : v.toFixed(1).replace('.', dec);
+  return String(v);
+}
+function toCSV(rows, sep, dec) {
+  const cols = []; const seen = new Set();
+  rows.forEach(r => Object.keys(r).forEach(k => { if (!seen.has(k)) { seen.add(k); cols.push(k); } }));
+  const q = s => (s.includes(sep) || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g, '""')}"` : s;
+  return [cols.join(sep), ...rows.map(r => cols.map(c => q(fmt(r[c], dec))).join(sep))].join('\r\n');
+}
+function downloadSession(sess) {
+  const sep = sess.sep === '\\t' ? '\t' : (sess.sep || ';');
+  const csv = toCSV(sess.data, sep, sess.dec || ',');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = sess.filename + (sess.completa ? '' : '_INCOMPLETO') + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  return a.download;
+}
+$('btnRecover').addEventListener('click', () => {
+  try { const s = JSON.parse(localStorage.getItem(LS_KEY)); if (s && s.data) downloadSession(s); } catch (e) { alert('No se pudo recuperar la sesión guardada.'); }
+});
+function downloadText(text, name, type) {
+  const blob = new Blob([text], { type });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+$('btnCfg').addEventListener('click', () => downloadText('\uFEFF' + configToCSV(CFG), 'configuracion_actual.csv', 'text/csv;charset=utf-8'));
+$('btnSaveHtml').addEventListener('click', () => {
+  const safe = t => String(t).replace(/<\/script/gi, '<\\/script');
+  let html = ORIGINAL_HTML
+    .replace(/(<script type="text\/plain" id="config-incluida">)[\s\S]*?(<\/script>)/, (m, a, b) => a + '\n' + safe(configToCSV(CFG)) + '\n' + b)
+    .replace(/(<script type="text\/plain" id="ensayos-incluidos">)[\s\S]*?(<\/script>)/, (m, a, b) => a + '\n' + safe(trialText ? trialText.trim() : '') + '\n' + b);
+  downloadText(html, 'decision_lexica_priming_configurado.html', 'text/html;charset=utf-8');
+});
+
+/* ---------------- presentación ---------------- */
+function stimHTML(text, px, upper) {
+  if (!text) return '';
+  const t = isTrue(upper) ? text.toLocaleUpperCase('es') : text;
+  return `<span style="font-size:${px}px">${esc(t)}</span>`;
+}
+// Resuelve la máscara: '' o 'blanco' = pantalla en blanco; 'auto' = caracter_mascara
+// repetido según la palabra más larga (prime o target); otro texto = tal cual.
+function maskText(v, r) {
+  const n = norm(v);
+  if (!n || n === 'blanco' || n === 'ninguna' || n === 'no') return '';
+  if (n === 'auto') {
+    const len = Math.max([...(r.prime || '')].length, [...(r.target || '')].length, 1);
+    return String(CFG.caracter_mascara || '*').repeat(len);
+  }
+  return String(v);
+}
+// Muestra html durante ms (redondeado a frames). Devuelve el timestamp del frame de inicio.
+async function present(html, ms) {
+  if (!(ms > 0)) return null;
+  const n = Math.max(1, Math.round(ms / frameMs));
+  const t0 = await nextFrame();
+  stim.innerHTML = html;
+  for (let i = 0; i < n - 1; i++) await nextFrame();
+  return t0;
+}
+function presentTarget(html, visibleMs, maxMs, keys) {
+  return new Promise(async resolve => {
+    const onset = await nextFrame();
+    stim.innerHTML = html;
+    let done = false, offAt = null;
+    const finish = res => { if (done) return; done = true; window.removeEventListener('keydown', onKey, true); resolve({ onset, offAt, ...res }); };
+    const onKey = e => {
+      const k = evKey(e);
+      if (k !== keys.w && k !== keys.nw) return;
+      e.preventDefault();
+      const ts = (e.timeStamp > 0 && e.timeStamp < 1e11) ? e.timeStamp : performance.now();
+      finish({ key: k, rt: ts - onset, timeout: false });
+    };
+    window.addEventListener('keydown', onKey, true);
+    while (!done) {
+      const ts = await nextFrame();
+      if (done) break;
+      if (aborted) { finish({ key: '', rt: null, timeout: false, aborted: true }); break; }
+      const el = ts - onset;
+      if (visibleMs > 0 && offAt === null && el >= visibleMs - frameMs / 2) { stim.innerHTML = ''; offAt = ts; }
+      if (maxMs > 0 && el >= maxMs - frameMs / 2) finish({ key: '', rt: null, timeout: true });
+    }
+  });
+}
+async function waitKeys(keys) {
+  let pressed = null;
+  const h = e => { if (e.repeat) return; const k = evKey(e); if (keys.includes(k)) { pressed = k; e.preventDefault(); } };
+  window.addEventListener('keydown', h, true);
+  while (!pressed && !aborted) await nextFrame();
+  window.removeEventListener('keydown', h, true);
+  return pressed;
+}
+// Varias pantallas seguidas: separa el texto con [PAGINA]
+async function textScreen(text, keys = [' '], extra = {}) {
+  stage.classList.add('text');
+  const pages = fillText(text, extra).split(/\s*\[PAGINA\]\s*/i).filter(x => x.trim());
+  for (let i = 0; i < pages.length; i++) {
+    stim.innerHTML = `<div class="screen">${esc(pages[i]).replace(/\n/g, '<br>')}</div>`;
+    await waitKeys(keys);
+    if (aborted) break;
+    if (i < pages.length - 1) { stim.innerHTML = ''; await new Promise(r => setTimeout(r, 250)); }
+  }
+  stim.innerHTML = '';
+  stage.classList.remove('text');
+}
+
+let anticip = 0, inTarget = false, curKeys = null;
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && e.shiftKey && SESSION && !SESSION.terminada) aborted = true;
+  if (SESSION && !SESSION.terminada && !inTarget && curKeys) {
+    const k = evKey(e); if (k === curKeys.w || k === curKeys.nw) anticip++;
+  }
+  if (SESSION && !SESSION.terminada && [' ', 'ArrowUp', 'ArrowDown'].includes(e.key)) e.preventDefault();
+}, true);
+
+async function runTrial(r, ctx) {
+  const T = timingOf(r);
+  const keys = curKeys;
+  anticip = 0;
+  const m1 = maskText(r.mascara1 ? r.mascara1 : CFG.mascara1, r);
+  const m2 = maskText(r.mascara2 ? r.mascara2 : CFG.mascara2, r);
+  const phases = [];
+  const tF = await present(stimHTML(CFG.simbolo_fijacion, CFG.tamano_fijacion_px, 'no'), T.fijacion_ms); if (tF !== null) phases.push(['fijacion', tF]);
+  const tM1 = await present(stimHTML(m1, CFG.tamano_prime_px, 'no'), T.mascara1_ms); if (tM1 !== null) phases.push(['mascara1', tM1]);
+  const tP = await present(stimHTML(r.prime, CFG.tamano_prime_px, CFG.mayusculas_prime), T.prime_ms); if (tP !== null) phases.push(['prime', tP]);
+  const tM2 = await present(stimHTML(m2, CFG.tamano_prime_px, 'no'), T.mascara2_ms); if (tM2 !== null) phases.push(['mascara2', tM2]);
+  inTarget = true;
+  const res = await presentTarget(stimHTML(r.target, CFG.tamano_target_px, CFG.mayusculas_target), T.target_ms, T.target_max_ms, keys);
+  inTarget = false;
+  phases.push(['target', res.onset]);
+  await nextFrame(); stim.innerHTML = '';
+  if (res.aborted) return null;
+
+  const real = {};
+  for (let i = 0; i < phases.length - 1; i++) real[phases[i][0]] = phases[i + 1][1] - phases[i][1];
+  const correctResp = r._lex;
+  const resp = res.key === keys.w ? 'palabra' : res.key === keys.nw ? 'no_palabra' : '';
+  const correct = res.timeout ? 0 : (resp === correctResp ? 1 : 0);
+
+  const row = {
+    participante: SESSION.meta.participante, sesion: SESSION.meta.sesion, grupo: SESSION.meta.grupo,
+    asignacion_teclas: SESSION.meta.asignacion, fecha_inicio: SESSION.meta.fecha, modo_prueba: SESSION.meta.modo_prueba,
+    modo: SESSION.meta.modo,
+    n_ensayo: ctx.n, fase: ctx.practica ? 'practica' : 'experimental', bloque: ctx.bloque, n_ensayo_bloque: ctx.nb,
+    fila_csv: r._fila
+  };
+  for (const [k, v] of Object.entries(r)) if (!k.startsWith('_') && !CTRL_COLS.has(k)) row[k] = v;
+  for (const k of TIMING_KEYS) row[k] = T[k];
+  row.fijacion_real_ms = real.fijacion ?? null;
+  row.mascara1_texto = m1;
+  row.mascara1_real_ms = real.mascara1 ?? null;
+  row.prime_real_ms = real.prime ?? null;
+  row.mascara2_texto = m2;
+  row.mascara2_real_ms = real.mascara2 ?? null;
+  row.soa_real_ms = tP !== null ? res.onset - tP : null;
+  row.respuesta_correcta = correctResp;
+  row.tecla = res.key ? keyName(res.key) : '';
+  row.respuesta = resp;
+  row.correcto = correct;
+  row.tr_ms = res.rt;
+  row.sin_respuesta = res.timeout ? 1 : 0;
+  row.teclas_anticipadas = anticip;
+  row.refresco_hz = Math.round(refreshHz * 10) / 10;
+  row.pantalla_px = SESSION.meta.pantalla_px;
+  if (SESSION.meta.modo === 'online') {
+    row.consentimiento = SESSION.meta.consentimiento;
+    if (SESSION.meta.nombre !== null) { row.nombre = SESSION.meta.nombre; row.correo = SESSION.meta.correo; }
+    row.navegador = SESSION.meta.navegador;
+  }
+
+  const fb = ctx.practica ? isTrue(CFG.feedback_practica) : isTrue(CFG.feedback_experimental);
+  if (fb && CFG.feedback_ms > 0) {
+    const [txt, cls] = res.timeout ? [CFG.texto_feedback_lento, 'fb-err'] : correct ? [CFG.texto_feedback_correcto, 'fb-ok'] : [CFG.texto_feedback_error, 'fb-err'];
+    await present(`<span class="${cls}" style="font-size:${CFG.tamano_target_px}px">${esc(txt)}</span>`, CFG.feedback_ms);
+  }
+  await present('', T.iti_ms > 0 ? T.iti_ms : 0);
+  if (T.iti_ms > 0) { await nextFrame(); }
+  return row;
+}
+
+async function runExperiment() {
+  const testMode = $('testMode').checked;
+  const { blocks, warnings } = buildBlocks(trialData.rows, testMode);
+  if (warnings.length) console.warn(warnings.join('\n'));
+  const now = new Date(), pad = n => String(n).padStart(2, '0');
+  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+  const pid = $('pid').value.trim();
+  SESSION = {
+    meta: { participante: pid, sesion: $('sesion').value.trim(), grupo: $('grupo').value.trim(),
+            asignacion: $('mapping').value, fecha: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`, modo_prueba: testMode ? 1 : 0,
+            modo: isTrue(CFG.modo_online) ? 'online' : 'local', consentimiento: ONLINE.consent, nombre: ONLINE.nombre ?? null, correo: ONLINE.correo ?? null,
+            pantalla_px: `${screen.width}x${screen.height}`, navegador: navigator.userAgent },
+    filename: `${String(CFG.prefijo_archivo || 'LDT_priming').replace(/[^\w\-]+/g, '_')}_${pid.replace(/[^\w\-]+/g, '_')}_s${($('sesion').value.trim() || '1').replace(/[^\w\-]+/g, '_')}_${stamp}${pad(now.getSeconds())}${testMode ? '_PRUEBA' : ''}`,
+    sep: CFG.separador_salida, dec: CFG.decimal_salida,
+    data: [], completa: false, terminada: false
+  };
+  aborted = false; curKeys = currentKeys();
+  saveBackup();
+
+  $('setup').hidden = true; stage.hidden = false;
+  document.body.style.background = CFG.color_fondo;
+  stage.style.background = CFG.color_fondo; stage.style.color = CFG.color_texto; stage.style.fontFamily = CFG.fuente;
+  if (isTrue(CFG.pantalla_completa) && document.documentElement.requestFullscreen) {
+    try { await document.documentElement.requestFullscreen(); } catch (e) {}
+  }
+  await measureRefresh(60);
+
+  await textScreen(CFG.texto_instrucciones);
+  let n = 0, nExp = 0;
+  const nExpBlocks = blocks.filter(b => !b.practica).length;
+  let expBlock = 0;
+  outer:
+  for (let bi = 0; bi < blocks.length; bi++) {
+    const b = blocks[bi], prev = blocks[bi - 1];
+    if (aborted) break;
+    if (b.practica && (!prev || !prev.practica)) await textScreen(CFG.texto_inicio_practica);
+    else if (!b.practica && prev && prev.practica) await textScreen(CFG.texto_fin_practica);
+    else if (!b.practica && prev && isTrue(CFG.descanso_entre_bloques))
+      await textScreen(CFG.texto_descanso, [' '], { BLOQUE: expBlock, N_BLOQUES: nExpBlocks });
+    if (!b.practica) expBlock++;
+    for (let ti = 0; ti < b.trials.length; ti++) {
+      if (aborted) break outer;
+      if (!b.practica && CFG.descanso_cada > 0 && nExp > 0 && nExp % CFG.descanso_cada === 0 && ti > 0)
+        await textScreen(CFG.texto_pausa);
+      if (aborted) break outer;
+      n++; if (!b.practica) nExp++;
+      const row = await runTrial(b.trials[ti], { n, nb: ti + 1, practica: b.practica, bloque: b.bloque });
+      if (!row) break outer;
+      SESSION.data.push(row); saveBackup();
+    }
+  }
+  SESSION.completa = !aborted; SESSION.terminada = true; saveBackup();
+  if (ONLINE.active) { await finishOnline(); return; }
+  const fname = SESSION.data.length ? downloadSession(SESSION) : null;
+  if (!aborted) {
+    stage.classList.add('text');
+    stim.innerHTML = `<div class="screen">${esc(fillText(CFG.texto_final)).replace(/\n/g, '<br>')}</div>` +
+      `<div class="hint">Datos guardados en Descargas: ${esc(fname || '')} · Experimentador: pulsa Esc para volver</div>`;
+    await waitKeys(['escape']);
+  }
+  if (document.fullscreenElement) { try { await document.exitFullscreen(); } catch (e) {} }
+  stage.hidden = true; stage.classList.remove('text'); stim.innerHTML = '';
+  document.body.style.background = '';
+  $('setup').hidden = false;
+  $('pid').value = ''; renderSetup();
+  $('msgs').insertAdjacentHTML('afterbegin', `<p class="msg ${aborted ? 'warn' : 'ok'}">${aborted ? 'Sesión abortada' : 'Sesión terminada'}: ${SESSION.data.length} ensayos guardados${fname ? ' en «' + esc(fname) + '»' : ''}. Puedes volver a descargarlos con «Descargar última sesión guardada».</p>`);
+}
+
+$('btnStart').addEventListener('click', () => { if (!$('btnStart').disabled) runExperiment(); });
+/* ---------------- modo online (DataPipe) ---------------- */
+const ONLINE = { active: false, consent: '' };
+const DATAPIPE_URL = 'https://pipe.jspsych.org/api/';
+const urlParams = new URLSearchParams(location.search);
+function urlParam(...names) { for (const n of names) { const v = urlParams.get(n); if (v && v.trim()) return v.trim(); } return ''; }
+function randomId() {
+  const a = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', r = new Uint32Array(8);
+  crypto.getRandomValues(r); return 'P' + [...r].map(x => a[x % a.length]).join('');
+}
+function isMobile() {
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
+    (navigator.maxTouchPoints > 1 && !matchMedia('(any-pointer: fine)').matches);
+}
+const hasDataPipeId = () => { const id = String(CFG.datapipe_id || '').trim(); return !!id && !/PEGA|COMPLETAR/i.test(id); };
+const warnUnload = e => { e.preventDefault(); e.returnValue = ''; };
+
+async function sendDataPipe(sess) {
+  const sep = sess.sep === '\\t' ? '\t' : (sess.sep || ';');
+  const filename = sess.filename + (sess.completa ? '' : '_INCOMPLETO') + '.csv';
+  const body = JSON.stringify({ experimentID: String(CFG.datapipe_id).trim(), filename,
+                                data: '\uFEFF' + toCSV(sess.data, sep, sess.dec || ',') });
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const r = await fetch(DATAPIPE_URL + 'data/', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: '*/*' }, body });
+      if (r.status === 201 || r.status === 202 || r.ok) { sess.enviado = filename; saveBackup(); return true; }
+      const j = await r.json().catch(() => ({}));
+      console.error('DataPipe respondió', r.status, j);
+      if (j && /FILE_EXISTS/.test(String(j.error || ''))) { sess.enviado = filename; saveBackup(); return true; } // un intento anterior ya llegó
+      if (r.status >= 400 && r.status < 500) return false;    // error de configuración: no se reintenta
+    } catch (e) { console.error('Error de red al enviar a DataPipe', e); }
+    await new Promise(res => setTimeout(res, 1500 * (attempt + 1)));
+  }
+  return false;
+}
+async function getDataPipeCondition() {
+  try {
+    const r = await fetch(DATAPIPE_URL + 'condition/', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: '*/*' },
+                                                         body: JSON.stringify({ experimentID: String(CFG.datapipe_id).trim() }) });
+    const j = await r.json();
+    if (typeof j.condition === 'number') return j.condition;
+  } catch (e) { console.error('No se pudo obtener la condición de DataPipe', e); }
+  return null;
+}
+async function finishOnline() {
+  window.removeEventListener('beforeunload', warnUnload);
+  stage.classList.add('text');
+  const show = (t, extra = '') => { stim.innerHTML = `<div class="screen">${esc(fillText(t)).replace(/\n/g, '<br>')}${extra}</div>`; };
+  let ok = false;
+  if (hasDataPipeId() && SESSION.data.length) {
+    show('Guardando tus respuestas…\n\nNo cierres esta ventana.');
+    ok = await sendDataPipe(SESSION);
+  }
+  if (isTrue(CFG.descarga_local_online)) downloadSession(SESSION);
+  if (document.fullscreenElement) { try { await document.exitFullscreen(); } catch (e) {} }
+  if (ok || (!hasDataPipeId() && isTrue(CFG.descarga_local_online))) show(CFG.texto_final_online);
+  else {
+    window.addEventListener('beforeunload', warnUnload);
+    show(CFG.texto_error_envio, '<p style="text-align:center;margin-top:28px"><button class="primary" id="dlBtn">Descargar mis datos</button></p>');
+    $('dlBtn').addEventListener('click', () => { downloadSession(SESSION); window.removeEventListener('beforeunload', warnUnload); });
+  }
+}
+function initOnline() {
+  ONLINE.active = true;
+  $('setup').hidden = true; $('online').hidden = false;
+  $('onText').innerHTML = esc(fillText(CFG.texto_bienvenida)).replace(/\n/g, '<br>');
+  const consent = String(CFG.texto_consentimiento || '').trim();
+  if (consent) { $('onConsent').hidden = false; $('onConsentText').textContent = fillText(consent); }
+  if (isTrue(CFG.pedir_contacto)) { $('onContact').hidden = false; $('onContactText').textContent = fillText(CFG.texto_contacto); }
+  const errs = [];
+  if (!trialData || trialData.errors.length || !trialData.rows.length)
+    errs.push('La tarea no está bien configurada (no hay ensayos válidos). Avisa a la persona responsable del estudio.');
+  if (!hasDataPipeId() && !isTrue(CFG.descarga_local_online))
+    errs.push('La tarea no está bien configurada (falta el identificador de DataPipe). Avisa a la persona responsable del estudio.');
+  if (isMobile()) errs.push('Esta tarea necesita un ordenador con teclado. Por favor, ábrela desde un ordenador (no desde un móvil o tableta).');
+  if (errs.length) { $('onErr').innerHTML = errs.map(esc).join('<br>'); $('onStart').disabled = true; return; }
+  $('onStart').addEventListener('click', async () => {
+    if (consent && !$('onAgree').checked) { $('onErr').textContent = 'Para participar tienes que marcar la casilla de consentimiento.'; return; }
+    $('onErr').textContent = ''; $('onStart').disabled = true;
+    if (isTrue(CFG.pedir_contacto)) {
+      const mail = $('onEmail').value.trim();
+      if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) { $('onErr').textContent = 'El correo electrónico no parece válido. Corrígelo o déjalo en blanco.'; $('onStart').disabled = false; return; }
+      ONLINE.nombre = $('onName').value.trim(); ONLINE.correo = mail;
+    }
+    ONLINE.consent = consent ? 'si' : 'no_aplica';
+    $('pid').value = urlParam('id', 'participante', 'PROLIFIC_PID', 'pid') || randomId();
+    $('sesion').value = urlParam('sesion') || '1';
+    $('grupo').value = urlParam('grupo');
+    $('testMode').checked = urlParam('prueba') === '1';
+    let map = norm(CFG.asignacion_teclas_online);
+    if (map === 'datapipe') { const c = hasDataPipeId() ? await getDataPipeCondition() : null; map = c === null ? 'aleatoria' : (c % 2 === 0 ? 'estandar' : 'invertida'); }
+    if (map !== 'estandar' && map !== 'invertida') map = Math.random() < 0.5 ? 'estandar' : 'invertida';
+    $('mapping').value = map;
+    $('online').hidden = true;
+    window.addEventListener('beforeunload', warnUnload);
+    runExperiment();
+  });
+}
+
+reloadAll().then(() => { if (isTrue(CFG.modo_online) && urlParam('admin') !== '1') initOnline(); });
+measureRefresh().then(renderSetup);
+</script></body></html>
