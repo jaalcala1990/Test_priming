@@ -1,0 +1,1223 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decisión léxica con priming</title>
+<!--
+  Tarea de decisión léxica con priming
+  ------------------------------------
+  Archivo único, funciona sin conexión: basta con abrirlo en Chrome o Firefox.
+  - Los ensayos se leen de un CSV (ver ensayos_ejemplo.csv).
+  - Los parámetros generales se pueden cambiar con un CSV de configuración
+    opcional (ver configuracion_ejemplo.csv) o editando DEFAULTS más abajo.
+  - Los datos se descargan como CSV al terminar (carpeta Descargas) y se guarda
+    una copia de seguridad en el navegador tras cada ensayo.
+  - Shift + Esc aborta la sesión y descarga los datos recogidos hasta ese momento.
+-->
+<style>
+  :root { --bg:#f6f5f2; --panel:#fff; --ink:#1d1d1f; --muted:#6b6b70; --line:#e2e0db;
+          --accent:#2f5d8a; --ok:#2e7d4f; --warn:#9a5800; --err:#b3261e; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; }
+  body { background:var(--bg); color:var(--ink);
+         font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  #setup { max-width:880px; margin:0 auto; padding:32px 16px 60px; }
+  h1 { font-size:24px; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 22px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          padding:18px 20px; margin-bottom:16px; }
+  .card h2 { font-size:13px; margin:0 0 12px; text-transform:uppercase;
+             letter-spacing:.05em; color:var(--muted); }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; }
+  label.f { display:flex; flex-direction:column; gap:4px; font-size:13px;
+            color:var(--muted); flex:1 1 180px; }
+  input[type=text], select { font:inherit; padding:8px 10px; border:1px solid var(--line);
+            border-radius:6px; color:var(--ink); background:#fff; }
+  input[type=file] { font-size:13px; }
+  button { font:inherit; padding:9px 16px; border-radius:6px; border:1px solid var(--line);
+           background:#fff; cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .msg { font-size:14px; margin:4px 0; }
+  .msg.err { color:var(--err); } .msg.warn { color:var(--warn); } .msg.ok { color:var(--ok); }
+  table { border-collapse:collapse; font-size:13px; margin:8px 0 4px; }
+  td,th { border:1px solid var(--line); padding:4px 10px; text-align:left; }
+  th { background:#faf9f7; font-weight:600; }
+  .small { font-size:13px; color:var(--muted); }
+  .check { display:flex; gap:6px; align-items:center; font-size:14px; }
+  #summary:empty { display:none; }
+  #online { max-width:760px; margin:0 auto; padding:40px 16px; font-size:17px; }
+  #online h1 { margin-bottom:14px; }
+  .consent { max-height:45vh; overflow:auto; border:1px solid var(--line); border-radius:8px;
+             padding:12px 14px; margin:14px 0; font-size:15px; background:#fcfbf9; white-space:pre-wrap; }
+  #onErr:empty { display:none; }
+
+  #stage { position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+           cursor:none; }
+  #stage[hidden] { display:none; }
+  #stim { text-align:center; white-space:pre-wrap; }
+  #stage.text { cursor:default; }
+  .screen { max-width:760px; padding:20px; font-size:22px; line-height:1.55; text-align:left; }
+  .fb-ok { color:#1a7f37; } .fb-err { color:#c62828; }
+  .hint { position:fixed; bottom:12px; left:0; right:0; text-align:center; font-size:13px; opacity:.5; }
+</style>
+</head>
+<body>
+
+<div id="setup">
+  <h1>Decisión léxica con priming</h1>
+  <p class="sub">Fijación → blanco → prime → blanco → target (¿palabra o no palabra?). Los ensayos se cargan desde un CSV.</p>
+
+  <div class="card">
+    <h2>Participante</h2>
+    <div class="row">
+      <label class="f">Código de participante *<input type="text" id="pid" autocomplete="off"></label>
+      <label class="f">Sesión<input type="text" id="sesion" value="1" autocomplete="off"></label>
+      <label class="f">Grupo / condición<input type="text" id="grupo" autocomplete="off"></label>
+      <label class="f">Asignación de teclas
+        <select id="mapping">
+          <option value="estandar">Estándar</option>
+          <option value="invertida">Invertida</option>
+        </select>
+      </label>
+    </div>
+    <p class="small" id="mappingInfo"></p>
+  </div>
+
+  <div class="card">
+    <h2>Archivos</h2>
+    <div class="row">
+      <label class="f">CSV de ensayos<input type="file" id="fTrials" accept=".csv,.txt,text/csv"></label>
+      <label class="f">CSV de configuración (opcional)<input type="file" id="fConfig" accept=".csv,.txt,text/csv"></label>
+    </div>
+    <p class="small" id="sources"></p>
+    <div id="msgs"></div>
+    <div id="summary"></div>
+  </div>
+
+  <div class="card">
+    <h2>Inicio</h2>
+    <div class="row" style="align-items:center">
+      <button class="primary" id="btnStart" disabled="">Comenzar experimento</button>
+      <label class="check"><input type="checkbox" id="testMode"> Modo prueba (solo 3 ensayos por bloque)</label>
+      <button id="btnCfg">Descargar configuración actual (CSV)</button>
+      <button id="btnSaveHtml">Guardar copia del HTML con esta configuración</button>
+      <button id="btnRecover" hidden="">Descargar última sesión guardada</button>
+    </div>
+    <p class="small" id="refreshInfo">Midiendo frecuencia de refresco…</p>
+    <p class="small">Durante el experimento: <b>Shift + Esc</b> aborta y descarga los datos recogidos hasta ese momento.</p>
+  </div>
+</div>
+
+<div id="online" hidden="">
+  <div class="card">
+    <h1>Bienvenida</h1>
+    <p id="onText"></p>
+    <div id="onConsent" hidden="">
+      <div id="onConsentText" class="consent"></div>
+      <label class="check"><input type="checkbox" id="onAgree"> He leído la información anterior y acepto participar</label>
+    </div>
+    <p class="msg err" id="onErr"></p>
+    <button class="primary" id="onStart">Comenzar</button>
+  </div>
+</div>
+
+<div id="stage" hidden=""><div id="stim"></div></div>
+
+<!-- =====================================================================
+     CONFIGURACIÓN INCLUIDA EN ESTE ARCHIVO
+     Se carga automáticamente al abrir la página. Formato: parametro;valor;descripcion
+     Puedes editarla aquí con un editor de texto, o ajustarla cargando un CSV y
+     pulsar «Guardar copia del HTML con esta configuración».
+     ===================================================================== -->
+<script type="text/plain" id="config-incluida">
+parametro;valor;descripcion
+tecla_palabra;a;"Tecla para PALABRA (asignación estándar; la invertida intercambia las dos)"
+tecla_no_palabra;l;Tecla para NO PALABRA. Admite letras, espacio o flecha_izquierda/flecha_derecha
+fijacion_ms;500;Duración del punto de fijación (ms)
+mascara1_ms;100;"Duración de la máscara (o blanco) ANTES del prime (ms; 0 = se omite)"
+prime_ms;200;Duración del prime (ms)
+mascara2_ms;50;"Duración de la máscara (o blanco) DESPUÉS del prime (ms; 0 = se omite)"
+target_ms;0;"Duración visible del target (ms; 0 = hasta la respuesta)"
+target_max_ms;2000;"Tiempo máximo para responder (ms; 0 = sin límite)"
+iti_ms;1000;Intervalo entre ensayos, pantalla en blanco (ms)
+simbolo_fijacion;+;Símbolo del punto de fijación
+mascara1;auto;"Máscara antes del prime: auto = caracteres según la palabra más larga; blanco = pantalla vacía; o un texto fijo (p. ej. #######)"
+mascara2;auto;Máscara después del prime (mismas opciones que mascara1)
+caracter_mascara;*;Carácter que usa la máscara auto
+color_fondo;#ffffff;Color de fondo (nombre o #hex)
+color_texto;#000000;Color del texto
+fuente;'Courier New', Courier, monospace;Tipo de letra (mejor monoespaciada si se usan máscaras)
+tamano_fijacion_px;40;Tamaño del punto de fijación (px)
+tamano_prime_px;40;Tamaño de letra del prime y las máscaras (px)
+tamano_target_px;40;Tamaño de letra del target (px)
+mayusculas_prime;no;Prime en mayúsculas (si/no)
+mayusculas_target;no;Target en mayúsculas (si/no)
+pantalla_completa;si;Pasar a pantalla completa al empezar (si/no)
+aleatorizar;si;"Aleatorizar el orden dentro de cada bloque (si/no; no = orden del CSV)"
+max_seguidos_misma_lexicalidad;3;Máximo de targets seguidos del mismo tipo (0 = sin restricción)
+feedback_practica;si;Feedback en la práctica (si/no)
+feedback_experimental;no;Feedback en los bloques experimentales (si/no)
+feedback_ms;800;Duración del feedback (ms)
+texto_feedback_correcto;¡Correcto!;Texto de feedback: acierto
+texto_feedback_error;Error;Texto de feedback: error
+texto_feedback_lento;¡Demasiado lento!;Texto de feedback: sin respuesta a tiempo
+descanso_entre_bloques;si;"Descanso entre bloques experimentales; se continúa con la barra espaciadora (si/no)"
+descanso_cada;0;Pausa adicional cada N ensayos experimentales dentro de un bloque (0 = no)
+separador_salida;";";"Separador de columnas del archivo de datos (; para Excel en español)"
+decimal_salida;,;Separador decimal del archivo de datos
+modo_online;si;"si = el participante ve la pantalla de bienvenida y los datos se envían a DataPipe; no = panel del experimentador"
+datapipe_id;obzAbDSgyyNb;"ID del experimento en DataPipe (pipe.jspsych.org); se copia del panel del experimento"
+asignacion_teclas_online;aleatoria;"Asignación de teclas en modo online: estandar, invertida, aleatoria o datapipe (alterna por orden de llegada; configura 2 condiciones en DataPipe)"
+descarga_local_online;no;En modo online, descargar también el CSV en el ordenador del participante (si/no)
+texto_bienvenida;Gracias por tu interés en participar en este estudio.\n\nLa tarea dura aproximadamente [COMPLETAR: duración] minutos. Necesitas un ordenador con teclado y un lugar tranquilo, sin distracciones.\n\nAl pulsar «Comenzar», la pantalla pasará a modo completo. No cierres la ventana hasta que la tarea te indique que has terminado.;Pantalla de bienvenida en modo online
+texto_consentimiento;[COMPLETAR: hoja de información y consentimiento aprobada por el comité de ética];Hoja de información y consentimiento (vacío = no se muestra). Si hay texto, hay que marcar la casilla para empezar
+texto_final_online;Has terminado la tarea y tus respuestas se han guardado correctamente.\n\n¡Muchas gracias por tu participación!\n\nYa puedes cerrar esta ventana.;Pantalla final en modo online cuando los datos se han enviado bien
+texto_error_envio;Has terminado la tarea, pero no se han podido enviar tus respuestas (posible problema de conexión).\n\nPor favor, pulsa el botón para descargar el archivo y envíaselo a la persona responsable del estudio.;Pantalla si falla el envío (aparece un botón para descargar los datos)
+texto_instrucciones;En esta tarea verás una cruz (+) en el centro de la pantalla. Mantén la mirada en ella.\n\nDespués aparecerá brevemente una palabra y, a continuación, una serie de letras.\n\nTu tarea es decidir, lo más rápido y con la mayor precisión posible, si esas letras forman una palabra que existe en español.\n\nSi es una PALABRA, pulsa la tecla {PALABRA}.\nSi NO es una palabra, pulsa la tecla {NO_PALABRA}.\n\nPulsa la BARRA ESPACIADORA para continuar.;"Instrucciones iniciales. {PALABRA} y {NO_PALABRA} = teclas; \n = salto de línea"
+texto_inicio_practica;Vamos a empezar con unos ensayos de práctica.\n\nPALABRA = tecla {PALABRA}\nNO PALABRA = tecla {NO_PALABRA}\n\nPulsa la BARRA ESPACIADORA para empezar.;Pantalla antes de la práctica
+texto_fin_practica;Has terminado la práctica.\n\nA partir de ahora comienza el experimento.\n\nPALABRA = tecla {PALABRA}\nNO PALABRA = tecla {NO_PALABRA}\n\nPulsa la BARRA ESPACIADORA para comenzar.;Pantalla entre la práctica y el experimento
+texto_descanso;Has terminado el bloque {BLOQUE} de {N_BLOQUES}.\n\nPuedes descansar unos segundos.\n\nPALABRA = tecla {PALABRA}\nNO PALABRA = tecla {NO_PALABRA}\n\nPulsa la BARRA ESPACIADORA cuando quieras continuar.;"Pantalla de descanso entre bloques. {BLOQUE} = bloque terminado; {N_BLOQUES} = total de bloques experimentales"
+texto_pausa;Puedes descansar unos segundos.\n\nPALABRA = tecla {PALABRA}\nNO PALABRA = tecla {NO_PALABRA}\n\nPulsa la BARRA ESPACIADORA cuando quieras continuar.;Pantalla de las pausas de descanso_cada
+texto_final;Has terminado la tarea.\n\n¡Muchas gracias por tu participación!\n\nAvisa a la persona responsable del experimento.;Pantalla final (modo local)
+</script>
+
+<!-- ENSAYOS INCLUIDOS (opcional). Mismo formato que el CSV de ensayos.
+     Si está vacío, hay que cargar el CSV de ensayos cada vez. -->
+<script type="text/plain" id="ensayos-incluidos">
+ensayo_id;bloque;practica;prime;target;lexicalidad;valencia_prime;valencia_target;combinacion;congruencia;prime_valencia_M;prime_arousal_M;prime_id_martinez_tomas;target_valencia_M;target_arousal_M;target_id_guasch;target_id_martinez_tomas;repeticiones
+b1_001;1;no;jamonado;arreza;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,73;5,36;20209;4,96;4,32;;40714;1
+b1_002;1;no;ailanza;naldro;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,04;5,04;40018;4,54;4,11;;50219;1
+b1_003;1;no;paellado;llisón;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,46;4,11;20281;4,48;4,12;;40350;1
+b1_004;1;no;ayudario;visoza;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,43;4,4;20038;4,38;4;;30795;1
+b1_005;1;no;cantario;sarbiaz;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,11;4,04;20059;4,92;4,15;;50049;1
+b1_006;1;no;dulzoza;chemero;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,46;3,88;30108;5,18;4,21;;40636;1
+b1_007;1;no;alabería;rapidar;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,07;4,08;20016;5,21;4,69;;20316;1
+b1_008;1;no;floredor;leonioz;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,44;3,68;20145;4,73;4,81;;30224;1
+b1_009;1;no;dinerón;laventía;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,73;6,37;20103;5,04;4,96;;40379;1
+b1_010;1;no;honradra;llahazgo;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,04;4,23;30180;4,93;4;;40171;1
+b1_011;1;no;playora;piananza;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,81;3,88;20297;4,92;4,08;;20291;1
+b1_012;1;no;libreza;heladañe;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,41;4,48;20617;4,89;4,04;;30173;1
+b1_013;1;no;libredad;jaconera;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,04;4,84;20226;5,13;4,16;;40445;1
+b1_014;1;no;educanza;hierboda;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,24;4,5;20504;5,15;4,12;;30176;1
+b1_015;1;no;novianza;sudadeño;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,52;5,36;20265;4,82;4,19;;20357;1
+b1_016;1;no;plenazgo;glupón;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;4,93;4,4;20298;4,85;4,58;;41104;1
+b1_017;1;no;refugazo;omipía;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,03;5,04;21119;4,52;4,68;;41042;1
+b1_018;1;no;afrondad;altoña;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,04;4,19;41073;4,44;4,12;;30418;1
+b1_019;1;no;argantía;areneja;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5;4,15;40156;5;4;;20030;1
+b1_020;1;no;patinora;bañerío;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,04;4,4;20285;5,11;4,68;;20041;1
+b1_021;1;no;zapatoda;vallero;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5;4,32;30799;5,19;4,12;;40625;1
+b1_022;1;no;colgoria;mayorro;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;4,79;4,96;30466;4,77;4,33;;30634;1
+b1_023;1;no;chulanza;rimoria;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;4,96;5,58;20887;4,71;4,08;;30331;1
+b1_024;1;no;ciranza;societro;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,22;4,84;40087;5,04;4,15;;30755;1
+b1_025;1;no;saciedra;sucalear;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;4,8;4,04;30739;5,07;5,04;;50888;1
+b1_026;1;no;voltoda;tomatavi;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;4,64;4,85;30797;4,92;4,4;;30370;1
+b1_027;1;no;atentero;gratiero;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,1;4,12;20844;5,11;4,54;;30166;1
+b1_028;1;no;listejo;cheflazo;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5;4,33;20623;5,14;4,88;;40973;1
+b1_029;1;no;fijadura;locutisa;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;4,77;5,52;20541;4,84;4,72;;30627;1
+b1_030;1;no;silbero;quesedad;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,14;4,08;20749;5,19;4,26;;41147;1
+b1_031;1;no;repulsoe;yojero;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;3;5,48;31124;5,33;4,12;;40212;1
+b1_032;1;no;mutadura;obrañe;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,81;4,77;21050;4,5;4,08;;30666;1
+b1_033;1;no;ansidura;riadez;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,69;5,38;20830;4,4;4,19;;40838;1
+b1_034;1;no;ñugroda;poderor;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,96;3,73;50986;4,96;5,12;;20696;1
+b1_035;1;no;trahegia;felpura;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,93;3,89;50988;4,85;4,08;;20535;1
+b1_036;1;no;obesista;torreal;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,8;5,32;21062;5,21;4,96;;20774;1
+b1_037;1;no;diputoña;leñario;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;3;4,71;30928;4,74;4,96;;20615;1
+b1_038;1;no;pobrizo;sonajade;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,89;5;21094;5;4,36;;30354;1
+b1_039;1;no;puñaliza;brujador;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,68;6,08;21106;4,93;5,96;;20861;1
+b1_040;1;no;lagrimío;aliuxiar;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,96;5,42;21022;4,92;4,84;;40036;1
+b1_041;1;no;soldedad;buceista;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,88;4,88;21151;4,89;5,08;;20051;1
+b1_042;1;no;tistreza;odapción;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,96;4,88;41182;4,87;4,8;;40411;1
+b1_043;1;no;losedad;karatreo;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,68;3,84;41152;4,85;4,48;;30215;1
+b1_044;1;no;cobardra;tiluidad;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;3;4,12;30889;5,16;4,12;;40377;1
+b1_045;1;no;nomnisio;horeismo;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,92;3,88;41012;4,81;4,62;;40175;1
+b1_046;1;no;cantario;caricia;palabra;Alta;Alta;PAlta_TAlta;congruente;6,11;4,04;20059;8,1;4,15;239;;1
+b1_047;1;no;floredor;aptitud;palabra;Alta;Alta;PAlta_TAlta;congruente;6,44;3,68;20145;7,4;5,18;94;;1
+b1_048;1;no;alabería;valiente;palabra;Alta;Alta;PAlta_TAlta;congruente;6,07;4,08;20016;7,68;5,4;1357;;1
+b1_049;1;no;novianza;ilusión;palabra;Alta;Alta;PAlta_TAlta;congruente;6,52;5,36;20265;7,55;5,95;708;;1
+b1_050;1;no;libredad;recreo;palabra;Alta;Alta;PAlta_TAlta;congruente;6,04;4,84;20226;7,6;5,82;1152;;1
+b1_051;1;no;patinora;corazón;palabra;Neutra;Alta;PNeutra_TAlta;mixta_neutra;5,04;4,4;20285;7,05;5,5;364;;1
+b1_052;1;no;ciranza;cariñoso;palabra;Neutra;Alta;PNeutra_TAlta;mixta_neutra;5,22;4,84;40087;7,35;4,48;242;;1
+b1_053;1;no;fijadura;fantasía;palabra;Neutra;Alta;PNeutra_TAlta;mixta_neutra;4,77;5,52;20541;7,86;5,7;590;;1
+b1_054;1;no;zapatoda;banquete;palabra;Neutra;Alta;PNeutra_TAlta;mixta_neutra;5;4,32;30799;7,29;4,9;155;;1
+b1_055;1;no;argantía;galardón;palabra;Neutra;Alta;PNeutra_TAlta;mixta_neutra;5;4,15;40156;7,75;6;627;;1
+b1_056;1;no;cobardra;aplauso;palabra;Baja;Alta;PBaja_TAlta;incongruente;3;4,12;30889;7,57;5,91;92;;1
+b1_057;1;no;obesista;medalla;palabra;Baja;Alta;PBaja_TAlta;incongruente;2,8;5,32;21062;7,14;5,65;888;;1
+b1_058;1;no;ansidura;acierto;palabra;Baja;Alta;PBaja_TAlta;incongruente;2,69;5,38;20830;7,8;5,45;22;;1
+b1_059;1;no;ñugroda;diamante;palabra;Baja;Alta;PBaja_TAlta;incongruente;2,96;3,73;50986;7,25;4,7;450;;1
+b1_060;1;no;nomnisio;elogio;palabra;Baja;Alta;PBaja_TAlta;incongruente;2,92;3,88;41012;7,8;6,05;505;;1
+b1_061;1;no;dulzoza;pirata;palabra;Alta;Neutra;PAlta_TNeutra;mixta_neutra;6,46;3,88;30108;4,69;5,9;1062;;1
+b1_062;1;no;jamonado;árbitro;palabra;Alta;Neutra;PAlta_TNeutra;mixta_neutra;6,73;5,36;20209;5;5,8;97;;1
+b1_063;1;no;educanza;desván;palabra;Alta;Neutra;PAlta_TNeutra;mixta_neutra;6,24;4,5;20504;5,09;5;445;;1
+b1_064;1;no;paellado;mercado;palabra;Alta;Neutra;PAlta_TNeutra;mixta_neutra;6,46;4,11;20281;5;5,14;898;;1
+b1_065;1;no;dinerón;cuestión;palabra;Alta;Neutra;PAlta_TNeutra;mixta_neutra;6,73;6,37;20103;5;5;396;;1
+b1_066;1;no;saciedra;corredor;palabra;Neutra;Neutra;PNeutra_TNeutra;congruente;4,8;4,04;30739;4,82;4,91;369;;1
+b1_067;1;no;silbero;difusión;palabra;Neutra;Neutra;PNeutra_TNeutra;congruente;5,14;4,08;20749;5,27;5,3;457;;1
+b1_068;1;no;voltoda;embajada;palabra;Neutra;Neutra;PNeutra_TNeutra;congruente;4,64;4,85;30797;4,95;4,73;506;;1
+b1_069;1;no;plenazgo;ingreso;palabra;Neutra;Neutra;PNeutra_TNeutra;congruente;4,93;4,4;20298;5,05;5,4;735;;1
+b1_070;1;no;chulanza;tijeras;palabra;Neutra;Neutra;PNeutra_TNeutra;congruente;4,96;5,58;20887;4,9;5,29;1307;;1
+b1_071;1;no;diputoña;martillo;palabra;Baja;Neutra;PBaja_TNeutra;mixta_neutra;3;4,71;30928;4,9;5,5;872;;1
+b1_072;1;no;soldedad;elemento;palabra;Baja;Neutra;PBaja_TNeutra;mixta_neutra;2,88;4,88;21151;5,09;4,25;503;;1
+b1_073;1;no;losedad;jubiloso;palabra;Baja;Neutra;PBaja_TNeutra;mixta_neutra;2,68;3,84;41152;5,09;5,18;769;;1
+b1_074;1;no;lagrimío;amante;palabra;Baja;Neutra;PBaja_TNeutra;mixta_neutra;2,96;5,42;21022;4,95;6,09;66;;1
+b1_075;1;no;tistreza;órgano;palabra;Baja;Neutra;PBaja_TNeutra;mixta_neutra;2,96;4,88;41182;4,91;5,6;985;;1
+b1_076;1;no;honradra;martirio;palabra;Alta;Baja;PAlta_TBaja;incongruente;6,04;4,23;30180;2,19;6,15;873;;1
+b1_077;1;no;ayudario;ausencia;palabra;Alta;Baja;PAlta_TBaja;incongruente;6,43;4,4;20038;2,33;4,59;132;;1
+b1_078;1;no;libreza;añoranza;palabra;Alta;Baja;PAlta_TBaja;incongruente;6,41;4,48;20617;2,35;4,95;87;;1
+b1_079;1;no;ailanza;trampa;palabra;Alta;Baja;PAlta_TBaja;incongruente;6,04;5,04;40018;2,58;5,7;1329;;1
+b1_080;1;no;playora;látigo;palabra;Alta;Baja;PAlta_TBaja;incongruente;6,81;3,88;20297;2,7;6,15;786;;1
+b1_081;1;no;colgoria;condena;palabra;Neutra;Baja;PNeutra_TBaja;mixta_neutra;4,79;4,96;30466;2,48;6,23;341;;1
+b1_082;1;no;afrondad;castidad;palabra;Neutra;Baja;PNeutra_TBaja;mixta_neutra;5,04;4,19;41073;2,41;4,45;252;;1
+b1_083;1;no;refugazo;cocaína;palabra;Neutra;Baja;PNeutra_TBaja;mixta_neutra;5,03;5,04;21119;2,25;5,33;307;;1
+b1_084;1;no;listejo;hacienda;palabra;Neutra;Baja;PNeutra_TBaja;mixta_neutra;5;4,33;20623;3;5,8;668;;1
+b1_085;1;no;atentero;bacteria;palabra;Neutra;Baja;PNeutra_TBaja;mixta_neutra;5,1;4,12;20844;3;5,19;145;;1
+b1_086;1;no;mutadura;olvido;palabra;Baja;Baja;PBaja_TBaja;congruente;2,81;4,77;21050;2,35;5,3;977;;1
+b1_087;1;no;puñaliza;inseguro;palabra;Baja;Baja;PBaja_TBaja;congruente;2,68;6,08;21106;3;5,65;740;;1
+b1_088;1;no;pobrizo;huérfano;palabra;Baja;Baja;PBaja_TBaja;congruente;2,89;5;21094;1,45;5,74;697;;1
+b1_089;1;no;trahegia;asustado;palabra;Baja;Baja;PBaja_TBaja;congruente;2,93;3,89;50988;2,7;6,1;120;;1
+b1_090;1;no;repulsoe;apuros;palabra;Baja;Baja;PBaja_TBaja;congruente;3;5,48;31124;2,7;6,23;95;;1
+b2_001;2;no;colgoria;arreza;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;4,79;4,96;30466;4,96;4,32;;40714;1
+b2_002;2;no;afrondad;naldro;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,04;4,19;41073;4,54;4,11;;50219;1
+b2_003;2;no;atentero;llisón;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,1;4,12;20844;4,48;4,12;;40350;1
+b2_004;2;no;refugazo;visoza;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,03;5,04;21119;4,38;4;;30795;1
+b2_005;2;no;chulanza;sarbiaz;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;4,96;5,58;20887;4,92;4,15;;50049;1
+b2_006;2;no;silbero;chemero;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,14;4,08;20749;5,18;4,21;;40636;1
+b2_007;2;no;argantía;rapidar;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5;4,15;40156;5,21;4,69;;20316;1
+b2_008;2;no;zapatoda;leonioz;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5;4,32;30799;4,73;4,81;;30224;1
+b2_009;2;no;fijadura;laventía;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;4,77;5,52;20541;5,04;4,96;;40379;1
+b2_010;2;no;saciedra;llahazgo;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;4,8;4,04;30739;4,93;4;;40171;1
+b2_011;2;no;listejo;piananza;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5;4,33;20623;4,92;4,08;;20291;1
+b2_012;2;no;plenazgo;heladañe;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;4,93;4,4;20298;4,89;4,04;;30173;1
+b2_013;2;no;voltoda;jaconera;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;4,64;4,85;30797;5,13;4,16;;40445;1
+b2_014;2;no;ciranza;hierboda;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,22;4,84;40087;5,15;4,12;;30176;1
+b2_015;2;no;patinora;sudadeño;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,04;4,4;20285;4,82;4,19;;20357;1
+b2_016;2;no;diputoña;glupón;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;3;4,71;30928;4,85;4,58;;41104;1
+b2_017;2;no;mutadura;omipía;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,81;4,77;21050;4,52;4,68;;41042;1
+b2_018;2;no;trahegia;altoña;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,93;3,89;50988;4,44;4,12;;30418;1
+b2_019;2;no;cobardra;areneja;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;3;4,12;30889;5;4;;20030;1
+b2_020;2;no;ñugroda;bañerío;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,96;3,73;50986;5,11;4,68;;20041;1
+b2_021;2;no;repulsoe;vallero;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;3;5,48;31124;5,19;4,12;;40625;1
+b2_022;2;no;obesista;mayorro;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,8;5,32;21062;4,77;4,33;;30634;1
+b2_023;2;no;nomnisio;rimoria;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,92;3,88;41012;4,71;4,08;;30331;1
+b2_024;2;no;puñaliza;societro;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,68;6,08;21106;5,04;4,15;;30755;1
+b2_025;2;no;ansidura;sucalear;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,69;5,38;20830;5,07;5,04;;50888;1
+b2_026;2;no;pobrizo;tomatavi;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,89;5;21094;4,92;4,4;;30370;1
+b2_027;2;no;soldedad;gratiero;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,88;4,88;21151;5,11;4,54;;30166;1
+b2_028;2;no;tistreza;cheflazo;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,96;4,88;41182;5,14;4,88;;40973;1
+b2_029;2;no;lagrimío;locutisa;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,96;5,42;21022;4,84;4,72;;30627;1
+b2_030;2;no;losedad;quesedad;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,68;3,84;41152;5,19;4,26;;41147;1
+b2_031;2;no;ayudario;yojero;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,43;4,4;20038;5,33;4,12;;40212;1
+b2_032;2;no;dulzoza;obrañe;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,46;3,88;30108;4,5;4,08;;30666;1
+b2_033;2;no;playora;riadez;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,81;3,88;20297;4,4;4,19;;40838;1
+b2_034;2;no;educanza;poderor;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,24;4,5;20504;4,96;5,12;;20696;1
+b2_035;2;no;alabería;felpura;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,07;4,08;20016;4,85;4,08;;20535;1
+b2_036;2;no;honradra;torreal;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,04;4,23;30180;5,21;4,96;;20774;1
+b2_037;2;no;cantario;leñario;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,11;4,04;20059;4,74;4,96;;20615;1
+b2_038;2;no;floredor;sonajade;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,44;3,68;20145;5;4,36;;30354;1
+b2_039;2;no;novianza;brujador;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,52;5,36;20265;4,93;5,96;;20861;1
+b2_040;2;no;libredad;aliuxiar;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,04;4,84;20226;4,92;4,84;;40036;1
+b2_041;2;no;jamonado;buceista;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,73;5,36;20209;4,89;5,08;;20051;1
+b2_042;2;no;paellado;odapción;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,46;4,11;20281;4,87;4,8;;40411;1
+b2_043;2;no;libreza;karatreo;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,41;4,48;20617;4,85;4,48;;30215;1
+b2_044;2;no;dinerón;tiluidad;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,73;6,37;20103;5,16;4,12;;40377;1
+b2_045;2;no;ailanza;horeismo;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,04;5,04;40018;4,81;4,62;;40175;1
+b2_046;2;no;colgoria;caricia;palabra;Neutra;Alta;PNeutra_TAlta;mixta_neutra;4,79;4,96;30466;8,1;4,15;239;;1
+b2_047;2;no;atentero;aptitud;palabra;Neutra;Alta;PNeutra_TAlta;mixta_neutra;5,1;4,12;20844;7,4;5,18;94;;1
+b2_048;2;no;refugazo;valiente;palabra;Neutra;Alta;PNeutra_TAlta;mixta_neutra;5,03;5,04;21119;7,68;5,4;1357;;1
+b2_049;2;no;afrondad;ilusión;palabra;Neutra;Alta;PNeutra_TAlta;mixta_neutra;5,04;4,19;41073;7,55;5,95;708;;1
+b2_050;2;no;listejo;recreo;palabra;Neutra;Alta;PNeutra_TAlta;mixta_neutra;5;4,33;20623;7,6;5,82;1152;;1
+b2_051;2;no;pobrizo;corazón;palabra;Baja;Alta;PBaja_TAlta;incongruente;2,89;5;21094;7,05;5,5;364;;1
+b2_052;2;no;repulsoe;cariñoso;palabra;Baja;Alta;PBaja_TAlta;incongruente;3;5,48;31124;7,35;4,48;242;;1
+b2_053;2;no;puñaliza;fantasía;palabra;Baja;Alta;PBaja_TAlta;incongruente;2,68;6,08;21106;7,86;5,7;590;;1
+b2_054;2;no;trahegia;banquete;palabra;Baja;Alta;PBaja_TAlta;incongruente;2,93;3,89;50988;7,29;4,9;155;;1
+b2_055;2;no;mutadura;galardón;palabra;Baja;Alta;PBaja_TAlta;incongruente;2,81;4,77;21050;7,75;6;627;;1
+b2_056;2;no;honradra;aplauso;palabra;Alta;Alta;PAlta_TAlta;congruente;6,04;4,23;30180;7,57;5,91;92;;1
+b2_057;2;no;ayudario;medalla;palabra;Alta;Alta;PAlta_TAlta;congruente;6,43;4,4;20038;7,14;5,65;888;;1
+b2_058;2;no;ailanza;acierto;palabra;Alta;Alta;PAlta_TAlta;congruente;6,04;5,04;40018;7,8;5,45;22;;1
+b2_059;2;no;playora;diamante;palabra;Alta;Alta;PAlta_TAlta;congruente;6,81;3,88;20297;7,25;4,7;450;;1
+b2_060;2;no;libreza;elogio;palabra;Alta;Alta;PAlta_TAlta;congruente;6,41;4,48;20617;7,8;6,05;505;;1
+b2_061;2;no;fijadura;pirata;palabra;Neutra;Neutra;PNeutra_TNeutra;congruente;4,77;5,52;20541;4,69;5,9;1062;;1
+b2_062;2;no;ciranza;árbitro;palabra;Neutra;Neutra;PNeutra_TNeutra;congruente;5,22;4,84;40087;5;5,8;97;;1
+b2_063;2;no;argantía;desván;palabra;Neutra;Neutra;PNeutra_TNeutra;congruente;5;4,15;40156;5,09;5;445;;1
+b2_064;2;no;zapatoda;mercado;palabra;Neutra;Neutra;PNeutra_TNeutra;congruente;5;4,32;30799;5;5,14;898;;1
+b2_065;2;no;patinora;cuestión;palabra;Neutra;Neutra;PNeutra_TNeutra;congruente;5,04;4,4;20285;5;5;396;;1
+b2_066;2;no;cobardra;corredor;palabra;Baja;Neutra;PBaja_TNeutra;mixta_neutra;3;4,12;30889;4,82;4,91;369;;1
+b2_067;2;no;ñugroda;difusión;palabra;Baja;Neutra;PBaja_TNeutra;mixta_neutra;2,96;3,73;50986;5,27;5,3;457;;1
+b2_068;2;no;obesista;embajada;palabra;Baja;Neutra;PBaja_TNeutra;mixta_neutra;2,8;5,32;21062;4,95;4,73;506;;1
+b2_069;2;no;nomnisio;ingreso;palabra;Baja;Neutra;PBaja_TNeutra;mixta_neutra;2,92;3,88;41012;5,05;5,4;735;;1
+b2_070;2;no;ansidura;tijeras;palabra;Baja;Neutra;PBaja_TNeutra;mixta_neutra;2,69;5,38;20830;4,9;5,29;1307;;1
+b2_071;2;no;libredad;martillo;palabra;Alta;Neutra;PAlta_TNeutra;mixta_neutra;6,04;4,84;20226;4,9;5,5;872;;1
+b2_072;2;no;floredor;elemento;palabra;Alta;Neutra;PAlta_TNeutra;mixta_neutra;6,44;3,68;20145;5,09;4,25;503;;1
+b2_073;2;no;novianza;jubiloso;palabra;Alta;Neutra;PAlta_TNeutra;mixta_neutra;6,52;5,36;20265;5,09;5,18;769;;1
+b2_074;2;no;cantario;amante;palabra;Alta;Neutra;PAlta_TNeutra;mixta_neutra;6,11;4,04;20059;4,95;6,09;66;;1
+b2_075;2;no;alabería;órgano;palabra;Alta;Neutra;PAlta_TNeutra;mixta_neutra;6,07;4,08;20016;4,91;5,6;985;;1
+b2_076;2;no;chulanza;martirio;palabra;Neutra;Baja;PNeutra_TBaja;mixta_neutra;4,96;5,58;20887;2,19;6,15;873;;1
+b2_077;2;no;plenazgo;ausencia;palabra;Neutra;Baja;PNeutra_TBaja;mixta_neutra;4,93;4,4;20298;2,33;4,59;132;;1
+b2_078;2;no;silbero;añoranza;palabra;Neutra;Baja;PNeutra_TBaja;mixta_neutra;5,14;4,08;20749;2,35;4,95;87;;1
+b2_079;2;no;voltoda;trampa;palabra;Neutra;Baja;PNeutra_TBaja;mixta_neutra;4,64;4,85;30797;2,58;5,7;1329;;1
+b2_080;2;no;saciedra;látigo;palabra;Neutra;Baja;PNeutra_TBaja;mixta_neutra;4,8;4,04;30739;2,7;6,15;786;;1
+b2_081;2;no;losedad;condena;palabra;Baja;Baja;PBaja_TBaja;congruente;2,68;3,84;41152;2,48;6,23;341;;1
+b2_082;2;no;diputoña;castidad;palabra;Baja;Baja;PBaja_TBaja;congruente;3;4,71;30928;2,41;4,45;252;;1
+b2_083;2;no;tistreza;cocaína;palabra;Baja;Baja;PBaja_TBaja;congruente;2,96;4,88;41182;2,25;5,33;307;;1
+b2_084;2;no;lagrimío;hacienda;palabra;Baja;Baja;PBaja_TBaja;congruente;2,96;5,42;21022;3;5,8;668;;1
+b2_085;2;no;soldedad;bacteria;palabra;Baja;Baja;PBaja_TBaja;congruente;2,88;4,88;21151;3;5,19;145;;1
+b2_086;2;no;educanza;olvido;palabra;Alta;Baja;PAlta_TBaja;incongruente;6,24;4,5;20504;2,35;5,3;977;;1
+b2_087;2;no;dinerón;inseguro;palabra;Alta;Baja;PAlta_TBaja;incongruente;6,73;6,37;20103;3;5,65;740;;1
+b2_088;2;no;jamonado;huérfano;palabra;Alta;Baja;PAlta_TBaja;incongruente;6,73;5,36;20209;1,45;5,74;697;;1
+b2_089;2;no;paellado;asustado;palabra;Alta;Baja;PAlta_TBaja;incongruente;6,46;4,11;20281;2,7;6,1;120;;1
+b2_090;2;no;dulzoza;apuros;palabra;Alta;Baja;PAlta_TBaja;incongruente;6,46;3,88;30108;2,7;6,23;95;;1
+b3_001;3;no;mutadura;arreza;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,81;4,77;21050;4,96;4,32;;40714;1
+b3_002;3;no;trahegia;naldro;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,93;3,89;50988;4,54;4,11;;50219;1
+b3_003;3;no;lagrimío;llisón;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,96;5,42;21022;4,48;4,12;;40350;1
+b3_004;3;no;repulsoe;visoza;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;3;5,48;31124;4,38;4;;30795;1
+b3_005;3;no;pobrizo;sarbiaz;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,89;5;21094;4,92;4,15;;50049;1
+b3_006;3;no;cobardra;chemero;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;3;4,12;30889;5,18;4,21;;40636;1
+b3_007;3;no;losedad;rapidar;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,68;3,84;41152;5,21;4,69;;20316;1
+b3_008;3;no;diputoña;leonioz;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;3;4,71;30928;4,73;4,81;;30224;1
+b3_009;3;no;tistreza;laventía;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,96;4,88;41182;5,04;4,96;;40379;1
+b3_010;3;no;puñaliza;llahazgo;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,68;6,08;21106;4,93;4;;40171;1
+b3_011;3;no;nomnisio;piananza;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,92;3,88;41012;4,92;4,08;;20291;1
+b3_012;3;no;soldedad;heladañe;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,88;4,88;21151;4,89;4,04;;30173;1
+b3_013;3;no;obesista;jaconera;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,8;5,32;21062;5,13;4,16;;40445;1
+b3_014;3;no;ansidura;hierboda;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,69;5,38;20830;5,15;4,12;;30176;1
+b3_015;3;no;ñugroda;sudadeño;no_palabra;Baja;pseudo_neutra;PBaja_Tpseudo;na;2,96;3,73;50986;4,82;4,19;;20357;1
+b3_016;3;no;playora;glupón;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,81;3,88;20297;4,85;4,58;;41104;1
+b3_017;3;no;libreza;omipía;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,41;4,48;20617;4,52;4,68;;41042;1
+b3_018;3;no;educanza;altoña;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,24;4,5;20504;4,44;4,12;;30418;1
+b3_019;3;no;honradra;areneja;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,04;4,23;30180;5;4;;20030;1
+b3_020;3;no;floredor;bañerío;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,44;3,68;20145;5,11;4,68;;20041;1
+b3_021;3;no;novianza;vallero;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,52;5,36;20265;5,19;4,12;;40625;1
+b3_022;3;no;ailanza;mayorro;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,04;5,04;40018;4,77;4,33;;30634;1
+b3_023;3;no;libredad;rimoria;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,04;4,84;20226;4,71;4,08;;30331;1
+b3_024;3;no;alabería;societro;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,07;4,08;20016;5,04;4,15;;30755;1
+b3_025;3;no;paellado;sucalear;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,46;4,11;20281;5,07;5,04;;50888;1
+b3_026;3;no;ayudario;tomatavi;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,43;4,4;20038;4,92;4,4;;30370;1
+b3_027;3;no;jamonado;gratiero;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,73;5,36;20209;5,11;4,54;;30166;1
+b3_028;3;no;cantario;cheflazo;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,11;4,04;20059;5,14;4,88;;40973;1
+b3_029;3;no;dulzoza;locutisa;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,46;3,88;30108;4,84;4,72;;30627;1
+b3_030;3;no;dinerón;quesedad;no_palabra;Alta;pseudo_neutra;PAlta_Tpseudo;na;6,73;6,37;20103;5,19;4,26;;41147;1
+b3_031;3;no;listejo;yojero;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5;4,33;20623;5,33;4,12;;40212;1
+b3_032;3;no;patinora;obrañe;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,04;4,4;20285;4,5;4,08;;30666;1
+b3_033;3;no;atentero;riadez;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,1;4,12;20844;4,4;4,19;;40838;1
+b3_034;3;no;argantía;poderor;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5;4,15;40156;4,96;5,12;;20696;1
+b3_035;3;no;silbero;felpura;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,14;4,08;20749;4,85;4,08;;20535;1
+b3_036;3;no;voltoda;torreal;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;4,64;4,85;30797;5,21;4,96;;20774;1
+b3_037;3;no;colgoria;leñario;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;4,79;4,96;30466;4,74;4,96;;20615;1
+b3_038;3;no;chulanza;sonajade;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;4,96;5,58;20887;5;4,36;;30354;1
+b3_039;3;no;zapatoda;brujador;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5;4,32;30799;4,93;5,96;;20861;1
+b3_040;3;no;saciedra;aliuxiar;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;4,8;4,04;30739;4,92;4,84;;40036;1
+b3_041;3;no;fijadura;buceista;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;4,77;5,52;20541;4,89;5,08;;20051;1
+b3_042;3;no;ciranza;odapción;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,22;4,84;40087;4,87;4,8;;40411;1
+b3_043;3;no;refugazo;karatreo;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,03;5,04;21119;4,85;4,48;;30215;1
+b3_044;3;no;afrondad;tiluidad;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;5,04;4,19;41073;5,16;4,12;;40377;1
+b3_045;3;no;plenazgo;horeismo;no_palabra;Neutra;pseudo_neutra;PNeutra_Tpseudo;na;4,93;4,4;20298;4,81;4,62;;40175;1
+b3_046;3;no;lagrimío;caricia;palabra;Baja;Alta;PBaja_TAlta;incongruente;2,96;5,42;21022;8,1;4,15;239;;1
+b3_047;3;no;losedad;aptitud;palabra;Baja;Alta;PBaja_TAlta;incongruente;2,68;3,84;41152;7,4;5,18;94;;1
+b3_048;3;no;diputoña;valiente;palabra;Baja;Alta;PBaja_TAlta;incongruente;3;4,71;30928;7,68;5,4;1357;;1
+b3_049;3;no;tistreza;ilusión;palabra;Baja;Alta;PBaja_TAlta;incongruente;2,96;4,88;41182;7,55;5,95;708;;1
+b3_050;3;no;soldedad;recreo;palabra;Baja;Alta;PBaja_TAlta;incongruente;2,88;4,88;21151;7,6;5,82;1152;;1
+b3_051;3;no;dinerón;corazón;palabra;Alta;Alta;PAlta_TAlta;congruente;6,73;6,37;20103;7,05;5,5;364;;1
+b3_052;3;no;jamonado;cariñoso;palabra;Alta;Alta;PAlta_TAlta;congruente;6,73;5,36;20209;7,35;4,48;242;;1
+b3_053;3;no;educanza;fantasía;palabra;Alta;Alta;PAlta_TAlta;congruente;6,24;4,5;20504;7,86;5,7;590;;1
+b3_054;3;no;dulzoza;banquete;palabra;Alta;Alta;PAlta_TAlta;congruente;6,46;3,88;30108;7,29;4,9;155;;1
+b3_055;3;no;paellado;galardón;palabra;Alta;Alta;PAlta_TAlta;congruente;6,46;4,11;20281;7,75;6;627;;1
+b3_056;3;no;saciedra;aplauso;palabra;Neutra;Alta;PNeutra_TAlta;mixta_neutra;4,8;4,04;30739;7,57;5,91;92;;1
+b3_057;3;no;silbero;medalla;palabra;Neutra;Alta;PNeutra_TAlta;mixta_neutra;5,14;4,08;20749;7,14;5,65;888;;1
+b3_058;3;no;voltoda;acierto;palabra;Neutra;Alta;PNeutra_TAlta;mixta_neutra;4,64;4,85;30797;7,8;5,45;22;;1
+b3_059;3;no;plenazgo;diamante;palabra;Neutra;Alta;PNeutra_TAlta;mixta_neutra;4,93;4,4;20298;7,25;4,7;450;;1
+b3_060;3;no;chulanza;elogio;palabra;Neutra;Alta;PNeutra_TAlta;mixta_neutra;4,96;5,58;20887;7,8;6,05;505;;1
+b3_061;3;no;puñaliza;pirata;palabra;Baja;Neutra;PBaja_TNeutra;mixta_neutra;2,68;6,08;21106;4,69;5,9;1062;;1
+b3_062;3;no;mutadura;árbitro;palabra;Baja;Neutra;PBaja_TNeutra;mixta_neutra;2,81;4,77;21050;5;5,8;97;;1
+b3_063;3;no;repulsoe;desván;palabra;Baja;Neutra;PBaja_TNeutra;mixta_neutra;3;5,48;31124;5,09;5;445;;1
+b3_064;3;no;trahegia;mercado;palabra;Baja;Neutra;PBaja_TNeutra;mixta_neutra;2,93;3,89;50988;5;5,14;898;;1
+b3_065;3;no;pobrizo;cuestión;palabra;Baja;Neutra;PBaja_TNeutra;mixta_neutra;2,89;5;21094;5;5;396;;1
+b3_066;3;no;libreza;corredor;palabra;Alta;Neutra;PAlta_TNeutra;mixta_neutra;6,41;4,48;20617;4,82;4,91;369;;1
+b3_067;3;no;ayudario;difusión;palabra;Alta;Neutra;PAlta_TNeutra;mixta_neutra;6,43;4,4;20038;5,27;5,3;457;;1
+b3_068;3;no;honradra;embajada;palabra;Alta;Neutra;PAlta_TNeutra;mixta_neutra;6,04;4,23;30180;4,95;4,73;506;;1
+b3_069;3;no;playora;ingreso;palabra;Alta;Neutra;PAlta_TNeutra;mixta_neutra;6,81;3,88;20297;5,05;5,4;735;;1
+b3_070;3;no;ailanza;tijeras;palabra;Alta;Neutra;PAlta_TNeutra;mixta_neutra;6,04;5,04;40018;4,9;5,29;1307;;1
+b3_071;3;no;refugazo;martillo;palabra;Neutra;Neutra;PNeutra_TNeutra;congruente;5,03;5,04;21119;4,9;5,5;872;;1
+b3_072;3;no;atentero;elemento;palabra;Neutra;Neutra;PNeutra_TNeutra;congruente;5,1;4,12;20844;5,09;4,25;503;;1
+b3_073;3;no;listejo;jubiloso;palabra;Neutra;Neutra;PNeutra_TNeutra;congruente;5;4,33;20623;5,09;5,18;769;;1
+b3_074;3;no;colgoria;amante;palabra;Neutra;Neutra;PNeutra_TNeutra;congruente;4,79;4,96;30466;4,95;6,09;66;;1
+b3_075;3;no;afrondad;órgano;palabra;Neutra;Neutra;PNeutra_TNeutra;congruente;5,04;4,19;41073;4,91;5,6;985;;1
+b3_076;3;no;obesista;martirio;palabra;Baja;Baja;PBaja_TBaja;congruente;2,8;5,32;21062;2,19;6,15;873;;1
+b3_077;3;no;ñugroda;ausencia;palabra;Baja;Baja;PBaja_TBaja;congruente;2,96;3,73;50986;2,33;4,59;132;;1
+b3_078;3;no;nomnisio;añoranza;palabra;Baja;Baja;PBaja_TBaja;congruente;2,92;3,88;41012;2,35;4,95;87;;1
+b3_079;3;no;cobardra;trampa;palabra;Baja;Baja;PBaja_TBaja;congruente;3;4,12;30889;2,58;5,7;1329;;1
+b3_080;3;no;ansidura;látigo;palabra;Baja;Baja;PBaja_TBaja;congruente;2,69;5,38;20830;2,7;6,15;786;;1
+b3_081;3;no;alabería;condena;palabra;Alta;Baja;PAlta_TBaja;incongruente;6,07;4,08;20016;2,48;6,23;341;;1
+b3_082;3;no;floredor;castidad;palabra;Alta;Baja;PAlta_TBaja;incongruente;6,44;3,68;20145;2,41;4,45;252;;1
+b3_083;3;no;cantario;cocaína;palabra;Alta;Baja;PAlta_TBaja;incongruente;6,11;4,04;20059;2,25;5,33;307;;1
+b3_084;3;no;novianza;hacienda;palabra;Alta;Baja;PAlta_TBaja;incongruente;6,52;5,36;20265;3;5,8;668;;1
+b3_085;3;no;libredad;bacteria;palabra;Alta;Baja;PAlta_TBaja;incongruente;6,04;4,84;20226;3;5,19;145;;1
+b3_086;3;no;ciranza;olvido;palabra;Neutra;Baja;PNeutra_TBaja;mixta_neutra;5,22;4,84;40087;2,35;5,3;977;;1
+b3_087;3;no;argantía;inseguro;palabra;Neutra;Baja;PNeutra_TBaja;mixta_neutra;5;4,15;40156;3;5,65;740;;1
+b3_088;3;no;patinora;huérfano;palabra;Neutra;Baja;PNeutra_TBaja;mixta_neutra;5,04;4,4;20285;1,45;5,74;697;;1
+b3_089;3;no;fijadura;asustado;palabra;Neutra;Baja;PNeutra_TBaja;mixta_neutra;4,77;5,52;20541;2,7;6,1;120;;1
+b3_090;3;no;zapatoda;apuros;palabra;Neutra;Baja;PNeutra_TBaja;mixta_neutra;5;4,32;30799;2,7;6,23;95;;1
+</script>
+
+<script>
+'use strict';
+
+/* =====================================================================
+   VALORES POR DEFECTO
+   Todos se pueden sobrescribir con el CSV de configuración (parametro;valor).
+   Los parámetros de tiempo (…_ms) también se pueden fijar ensayo a ensayo
+   con columnas del mismo nombre en el CSV de ensayos.
+   ===================================================================== */
+const DEFAULTS = {
+  // Teclas (asignación estándar; "invertida" las intercambia)
+  tecla_palabra: 'a',
+  tecla_no_palabra: 'l',
+
+  // Tiempos (ms) — PROVISIONALES: ajústalos a vuestro diseño
+  fijacion_ms: 500,      // punto de fijación
+  mascara1_ms: 100,      // máscara (o blanco) antes del prime
+  prime_ms: 200,         // duración del prime
+  mascara2_ms: 50,       // máscara (o blanco) entre prime y target
+  target_ms: 0,          // duración visible del target (0 = hasta la respuesta)
+  target_max_ms: 2000,   // tiempo máximo para responder (0 = sin límite)
+  iti_ms: 1000,          // intervalo entre ensayos (pantalla en blanco)
+
+  // Aparición
+  simbolo_fijacion: '+',
+  mascara1: 'auto',      // auto = caracter_mascara repetido tantas veces como letras tenga
+  mascara2: 'auto',      //   la palabra más larga (prime o target); vacío = pantalla en blanco;
+                         //   cualquier otro texto se muestra tal cual (p. ej. #######)
+  caracter_mascara: '*',
+  color_fondo: '#ffffff',
+  color_texto: '#000000',
+  fuente: "'Courier New', Courier, monospace",   // monoespaciada: la máscara ocupa lo mismo que la palabra
+  tamano_fijacion_px: 40,
+  tamano_prime_px: 40,
+  tamano_target_px: 40,
+  mayusculas_prime: 'no',
+  mayusculas_target: 'no',
+  pantalla_completa: 'si',
+
+  // Orden de los ensayos
+  aleatorizar: 'si',                    // aleatoriza dentro de cada bloque
+  max_seguidos_misma_lexicalidad: 3,    // 0 = sin restricción
+
+  // Feedback
+  feedback_practica: 'si',
+  feedback_experimental: 'no',
+  feedback_ms: 800,
+  texto_feedback_correcto: '¡Correcto!',
+  texto_feedback_error: 'Error',
+  texto_feedback_lento: '¡Demasiado lento!',
+
+  // Descansos
+  descanso_entre_bloques: 'si',
+  descanso_cada: 0,      // descanso cada N ensayos experimentales (0 = no)
+
+  // Archivo de salida
+  separador_salida: ';',
+  decimal_salida: ',',
+
+  // Modo online (DataPipe). Con modo_online = si, el participante ve una pantalla de
+  // bienvenida en lugar del panel del experimentador (añade ?admin=1 a la URL para verlo).
+  modo_online: 'no',
+  datapipe_id: '',                       // ID del experimento en pipe.jspsych.org
+  asignacion_teclas_online: 'aleatoria', // estandar | invertida | aleatoria | datapipe
+  descarga_local_online: 'no',           // además de enviar, descargar el CSV en el ordenador del participante
+  texto_bienvenida:
+    'Gracias por tu interés en participar en este estudio.\n\n' +
+    'La tarea dura aproximadamente [COMPLETAR: duración] minutos. Necesitas un ordenador con teclado y un lugar tranquilo, sin distracciones.\n\n' +
+    'Al pulsar «Comenzar», la pantalla pasará a modo completo. No cierres la ventana hasta que la tarea te indique que has terminado.',
+  texto_consentimiento: '',              // vacío = no se muestra; si hay texto, el participante debe aceptarlo
+  texto_final_online:
+    'Has terminado la tarea y tus respuestas se han guardado correctamente.\n\n¡Muchas gracias por tu participación!\n\nYa puedes cerrar esta ventana.',
+  texto_error_envio:
+    'Has terminado la tarea, pero no se han podido enviar tus respuestas (posible problema de conexión).\n\n' +
+    'Por favor, pulsa el botón para descargar el archivo y envíaselo a la persona responsable del estudio.',
+
+  // Textos ({PALABRA} y {NO_PALABRA} se sustituyen por las teclas; \n = salto de línea)
+  texto_instrucciones:
+    'En esta tarea verás una cruz (+) en el centro de la pantalla. Mantén la mirada en ella.\n\n' +
+    'Después aparecerá brevemente una palabra y, a continuación, una serie de letras.\n\n' +
+    'Tu tarea es decidir, lo más rápido y con la mayor precisión posible, si esas letras forman una palabra que existe en español.\n\n' +
+    'Si es una PALABRA, pulsa la tecla {PALABRA}.\nSi NO es una palabra, pulsa la tecla {NO_PALABRA}.\n\n' +
+    'Pulsa la BARRA ESPACIADORA para continuar.',
+  texto_inicio_practica:
+    'Vamos a empezar con unos ensayos de práctica.\n\n' +
+    'PALABRA = tecla {PALABRA}\nNO PALABRA = tecla {NO_PALABRA}\n\n' +
+    'Pulsa la BARRA ESPACIADORA para empezar.',
+  texto_fin_practica:
+    'Has terminado la práctica.\n\nA partir de ahora comienza el experimento.\n\n' +
+    'PALABRA = tecla {PALABRA}\nNO PALABRA = tecla {NO_PALABRA}\n\n' +
+    'Pulsa la BARRA ESPACIADORA para comenzar.',
+  texto_descanso:
+    'Has terminado el bloque {BLOQUE} de {N_BLOQUES}.\n\nPuedes descansar unos segundos.\n\nPALABRA = tecla {PALABRA}\nNO PALABRA = tecla {NO_PALABRA}\n\n' +
+    'Pulsa la BARRA ESPACIADORA cuando quieras continuar.',
+  texto_pausa:
+    'Puedes descansar unos segundos.\n\nPALABRA = tecla {PALABRA}\nNO PALABRA = tecla {NO_PALABRA}\n\n' +
+    'Pulsa la BARRA ESPACIADORA cuando quieras continuar.',
+  texto_final:
+    'Has terminado la tarea.\n\n¡Muchas gracias por tu participación!\n\nAvisa a la persona responsable del experimento.'
+};
+
+const DESCRIPCIONES = {
+  tecla_palabra: 'Tecla para PALABRA (asignación estándar; la invertida intercambia las dos)',
+  tecla_no_palabra: 'Tecla para NO PALABRA. Admite letras, espacio o flecha_izquierda/flecha_derecha',
+  fijacion_ms: 'Duración del punto de fijación (ms)',
+  mascara1_ms: 'Duración de la máscara (o blanco) ANTES del prime (ms; 0 = se omite)',
+  prime_ms: 'Duración del prime (ms)',
+  mascara2_ms: 'Duración de la máscara (o blanco) DESPUÉS del prime (ms; 0 = se omite)',
+  target_ms: 'Duración visible del target (ms; 0 = hasta la respuesta)',
+  target_max_ms: 'Tiempo máximo para responder (ms; 0 = sin límite)',
+  iti_ms: 'Intervalo entre ensayos, pantalla en blanco (ms)',
+  simbolo_fijacion: 'Símbolo del punto de fijación',
+  mascara1: 'Máscara antes del prime: auto = caracteres según la palabra más larga; blanco = pantalla vacía; o un texto fijo (p. ej. #######)',
+  mascara2: 'Máscara después del prime (mismas opciones que mascara1)',
+  caracter_mascara: 'Carácter que usa la máscara auto',
+  color_fondo: 'Color de fondo (nombre o #hex)',
+  color_texto: 'Color del texto',
+  fuente: 'Tipo de letra (mejor monoespaciada si se usan máscaras)',
+  tamano_fijacion_px: 'Tamaño del punto de fijación (px)',
+  tamano_prime_px: 'Tamaño de letra del prime y las máscaras (px)',
+  tamano_target_px: 'Tamaño de letra del target (px)',
+  mayusculas_prime: 'Prime en mayúsculas (si/no)',
+  mayusculas_target: 'Target en mayúsculas (si/no)',
+  pantalla_completa: 'Pasar a pantalla completa al empezar (si/no)',
+  aleatorizar: 'Aleatorizar el orden dentro de cada bloque (si/no; no = orden del CSV)',
+  max_seguidos_misma_lexicalidad: 'Máximo de targets seguidos del mismo tipo (0 = sin restricción)',
+  feedback_practica: 'Feedback en la práctica (si/no)',
+  feedback_experimental: 'Feedback en los bloques experimentales (si/no)',
+  feedback_ms: 'Duración del feedback (ms)',
+  texto_feedback_correcto: 'Texto de feedback: acierto',
+  texto_feedback_error: 'Texto de feedback: error',
+  texto_feedback_lento: 'Texto de feedback: sin respuesta a tiempo',
+  descanso_entre_bloques: 'Descanso entre bloques experimentales; se continúa con la barra espaciadora (si/no)',
+  descanso_cada: 'Pausa adicional cada N ensayos experimentales dentro de un bloque (0 = no)',
+  separador_salida: 'Separador de columnas del archivo de datos (; para Excel en español)',
+  decimal_salida: 'Separador decimal del archivo de datos',
+  texto_instrucciones: 'Instrucciones iniciales. {PALABRA} y {NO_PALABRA} = teclas; \\n = salto de línea',
+  texto_inicio_practica: 'Pantalla antes de la práctica',
+  texto_fin_practica: 'Pantalla entre la práctica y el experimento',
+  texto_descanso: 'Pantalla de descanso entre bloques. {BLOQUE} = bloque terminado; {N_BLOQUES} = total de bloques experimentales',
+  texto_pausa: 'Pantalla de las pausas de descanso_cada',
+  texto_final: 'Pantalla final (modo local)',
+  modo_online: 'si = el participante ve la pantalla de bienvenida y los datos se envían a DataPipe; no = panel del experimentador',
+  datapipe_id: 'ID del experimento en DataPipe (pipe.jspsych.org); se copia del panel del experimento',
+  asignacion_teclas_online: 'Asignación de teclas en modo online: estandar, invertida, aleatoria o datapipe (alterna por orden de llegada; configura 2 condiciones en DataPipe)',
+  descarga_local_online: 'En modo online, descargar también el CSV en el ordenador del participante (si/no)',
+  texto_bienvenida: 'Pantalla de bienvenida en modo online',
+  texto_consentimiento: 'Hoja de información y consentimiento (vacío = no se muestra). Si hay texto, hay que marcar la casilla para empezar',
+  texto_final_online: 'Pantalla final en modo online cuando los datos se han enviado bien',
+  texto_error_envio: 'Pantalla si falla el envío (aparece un botón para descargar los datos)'
+};
+function configToCSV(cfg) {
+  const q = v => { v = String(v ?? '').replace(/\r?\n/g, '\\n'); return /[;"]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
+  return ['parametro;valor;descripcion', ...Object.keys(DEFAULTS).map(k => [k, cfg[k], DESCRIPCIONES[k] || ''].map(q).join(';'))].join('\n');
+}
+
+const TIMING_KEYS = ['fijacion_ms','mascara1_ms','prime_ms','mascara2_ms','target_ms','target_max_ms','iti_ms'];
+const CTRL_COLS = new Set(['repeticiones','practica','bloque', ...TIMING_KEYS]);
+const LS_KEY = 'ldt_priming_ultima_sesion';
+
+const ORIGINAL_HTML = '<!doctype html>\n' + document.documentElement.outerHTML;
+let CFG = { ...DEFAULTS };
+let cfgWarnings = [];
+let trialData = null;            // {rows, errors, warnings, headers}
+let frameMs = 1000 / 60, refreshHz = 60;
+let aborted = false;
+let lastDownload = null;
+
+const $ = id => document.getElementById(id);
+const stage = $('stage'), stim = $('stim');
+
+/* ---------------- utilidades ---------------- */
+const norm = s => String(s ?? '').trim().toLowerCase()
+  .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[\s\-]+/g, '_');
+const ALIASES = { blanco1_ms: 'mascara1_ms', blanco2_ms: 'mascara2_ms' };
+const normCol = s => { const n = norm(s); return ALIASES[n] || n; };
+const isTrue = v => ['si','yes','true','1','s','y','verdadero'].includes(norm(v));
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const num = v => { const n = Number(String(v).trim().replace(',', '.')); return Number.isFinite(n) ? n : NaN; };
+const nextFrame = () => new Promise(r => requestAnimationFrame(r));
+
+function keyName(k) { return k === ' ' ? 'ESPACIO' : (k.length === 1 ? k.toUpperCase() : k); }
+function cfgKey(v) {
+  const s = String(v ?? '').trim();
+  const n = norm(s);
+  if (n === 'espacio' || n === 'space') return ' ';
+  if (s.length === 1) return s.toLowerCase();
+  const map = { flecha_izquierda:'arrowleft', flecha_derecha:'arrowright', flecha_arriba:'arrowup', flecha_abajo:'arrowdown' };
+  return map[n] || s.toLowerCase();
+}
+const evKey = e => (e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase());
+
+function currentKeys() {
+  let w = cfgKey(CFG.tecla_palabra), nw = cfgKey(CFG.tecla_no_palabra);
+  if ($('mapping').value === 'invertida') [w, nw] = [nw, w];
+  return { w, nw };
+}
+function fillText(t, extra = {}) {
+  const { w, nw } = currentKeys();
+  let out = String(t).replace(/\\n/g, '\n')
+    .replace(/\{PALABRA\}/g, keyName(w)).replace(/\{NO_PALABRA\}/g, keyName(nw));
+  for (const [k, v] of Object.entries(extra)) out = out.split(`{${k}}`).join(String(v));
+  return out;
+}
+
+/* ---------------- lectura de CSV ---------------- */
+function readFileText(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onerror = rej;
+    r.onload = () => {
+      const t = r.result;
+      if (!t.includes('�')) return res(t.replace(/^﻿/, ''));
+      // No era UTF-8 (típico de Excel "CSV" en Windows/Mac): reintentar como Windows-1252
+      const r2 = new FileReader();
+      r2.onerror = rej;
+      r2.onload = () => res(r2.result.replace(/^﻿/, ''));
+      r2.readAsText(file, 'windows-1252');
+    };
+    r.readAsText(file, 'utf-8');
+  });
+}
+function detectDelimiter(text) {
+  const first = text.split(/\r?\n/).find(l => l.trim() !== '') || '';
+  const c = { ';':0, ',':0, '\t':0 }; let q = false;
+  for (const ch of first) { if (ch === '"') q = !q; else if (!q && ch in c) c[ch]++; }
+  const best = Object.entries(c).sort((a, b) => b[1] - a[1])[0];
+  return best[1] > 0 ? best[0] : ',';
+}
+function parseCSV(text) {
+  const d = detectDelimiter(text);
+  const rows = []; let row = [], f = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; }
+      else f += c;
+    } else if (c === '"') q = true;
+    else if (c === d) { row.push(f); f = ''; }
+    else if (c === '\n') { row.push(f); rows.push(row); row = []; f = ''; }
+    else if (c !== '\r') f += c;
+  }
+  if (f !== '' || row.length) { row.push(f); rows.push(row); }
+  return rows.filter(r => r.some(x => x.trim() !== ''));
+}
+
+/* ---------------- configuración ---------------- */
+function applyConfig(rows) {
+  CFG = { ...DEFAULTS }; cfgWarnings = [];
+  if (!rows) return;
+  let start = 0;
+  if (rows.length && ['parametro','parameter'].includes(norm(rows[0][0]))) start = 1;
+  for (let i = start; i < rows.length; i++) {
+    const key = normCol(rows[i][0]); const val = (rows[i][1] ?? '').trim();
+    if (!key) continue;
+    if (!(key in DEFAULTS)) { cfgWarnings.push(`Configuración, fila ${i + 1}: parámetro desconocido «${rows[i][0]}» (se ignora).`); continue; }
+    if (typeof DEFAULTS[key] === 'number') {
+      const n = num(val);
+      if (Number.isNaN(n) || n < 0) { cfgWarnings.push(`Configuración: «${key}» debe ser un número ≥ 0 (valor «${val}»); se usa ${DEFAULTS[key]}.`); continue; }
+      CFG[key] = n;
+    } else CFG[key] = val;
+  }
+}
+
+/* ---------------- ensayos ---------------- */
+function normLex(v) {
+  const s = norm(v);
+  if (['palabra','word','w','1','si','p','real'].includes(s)) return 'palabra';
+  if (['no_palabra','nopalabra','pseudopalabra','pseudo','nonword','non_word','pw','nw','0','no','np'].includes(s)) return 'no_palabra';
+  return null;
+}
+function validateTrials(rows) {
+  const errors = [], warnings = [];
+  if (!rows || rows.length < 2) return { rows: [], errors: ['El CSV de ensayos está vacío o solo tiene cabecera.'], warnings, headers: [] };
+  const headers = rows[0].map(normCol);
+  const dup = headers.filter((h, i) => h && headers.indexOf(h) !== i);
+  if (dup.length) errors.push(`Columnas repetidas: ${[...new Set(dup)].join(', ')}.`);
+  for (const req of ['prime','target','lexicalidad'])
+    if (!headers.includes(req)) errors.push(`Falta la columna obligatoria «${req}».`);
+  if (errors.length) return { rows: [], errors, warnings, headers };
+  const out = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = {}; headers.forEach((h, j) => { if (h) r[h] = (rows[i][j] ?? '').trim(); });
+    const line = i + 1;
+    r._fila = line;
+    if (!r.target) errors.push(`Fila ${line}: target vacío.`);
+    if (!r.prime) warnings.push(`Fila ${line}: prime vacío (se mostrará pantalla en blanco).`);
+    r._lex = normLex(r.lexicalidad);
+    if (!r._lex) errors.push(`Fila ${line}: lexicalidad «${r.lexicalidad}» no reconocida (usa palabra / no_palabra).`);
+    for (const k of TIMING_KEYS) if (r[k] !== undefined && r[k] !== '') {
+      const n = num(r[k]); if (Number.isNaN(n) || n < 0) errors.push(`Fila ${line}: ${k} = «${r[k]}» no es un número ≥ 0.`);
+    }
+    if (r.repeticiones !== undefined && r.repeticiones !== '') {
+      const n = num(r.repeticiones);
+      if (!Number.isInteger(n) || n < 0) errors.push(`Fila ${line}: repeticiones = «${r.repeticiones}» debe ser un entero ≥ 0.`);
+    }
+    out.push(r);
+  }
+  return { rows: out, errors, warnings, headers };
+}
+function timingOf(r) {
+  const t = {};
+  for (const k of TIMING_KEYS) t[k] = (r[k] !== undefined && r[k] !== '') ? num(r[k]) : CFG[k];
+  return t;
+}
+
+function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+function constrainedShuffle(arr, maxRun) {
+  if (!maxRun) return { list: shuffle(arr.slice()), ok: true };
+  for (let attempt = 0; attempt < 2000; attempt++) {
+    const pool = shuffle(arr.slice()), out = []; let fail = false;
+    while (pool.length) {
+      let idx = -1;
+      for (let i = 0; i < pool.length; i++) {
+        let run = 1;
+        for (let j = out.length - 1; j >= 0 && out[j]._lex === pool[i]._lex; j--) run++;
+        if (run <= maxRun) { idx = i; break; }
+      }
+      if (idx < 0) { fail = true; break; }
+      out.push(pool.splice(idx, 1)[0]);
+    }
+    if (!fail) return { list: out, ok: true };
+  }
+  return { list: shuffle(arr.slice()), ok: false };
+}
+function buildBlocks(rows, testMode) {
+  const groups = [], index = new Map(), warnings = [];
+  for (const r of rows) {
+    const reps = (r.repeticiones !== undefined && r.repeticiones !== '') ? num(r.repeticiones) : 1;
+    const prac = isTrue(r.practica);
+    const b = (r.bloque || '').trim() || (prac ? 'practica' : '1');
+    const key = (prac ? 'P|' : 'E|') + b;
+    if (!index.has(key)) { index.set(key, groups.length); groups.push({ practica: prac, bloque: b, trials: [] }); }
+    for (let k = 0; k < reps; k++) groups[index.get(key)].trials.push(r);
+  }
+  const blocks = [...groups.filter(g => g.practica), ...groups.filter(g => !g.practica)];
+  for (const g of blocks) {
+    if (isTrue(CFG.aleatorizar)) {
+      const res = constrainedShuffle(g.trials, CFG.max_seguidos_misma_lexicalidad);
+      g.trials = res.list;
+      if (!res.ok) warnings.push(`Bloque «${g.bloque}»: no se pudo cumplir la restricción de ${CFG.max_seguidos_misma_lexicalidad} seguidos; se usa un orden aleatorio simple.`);
+    }
+    if (testMode) g.trials = g.trials.slice(0, 3);
+  }
+  return { blocks: blocks.filter(g => g.trials.length), warnings };
+}
+
+/* ---------------- interfaz de preparación ---------------- */
+function renderSetup() {
+  const msgs = [], { w, nw } = currentKeys();
+  $('mappingInfo').textContent = `PALABRA = ${keyName(w)} · NO PALABRA = ${keyName(nw)}`;
+  cfgWarnings.forEach(m => msgs.push(['warn', m]));
+  let ok = false, html = '';
+  if (trialData) {
+    trialData.errors.forEach(m => msgs.push(['err', m]));
+    trialData.warnings.slice(0, 15).forEach(m => msgs.push(['warn', m]));
+    if (trialData.warnings.length > 15) msgs.push(['warn', `… y ${trialData.warnings.length - 15} avisos más.`]);
+    if (!trialData.errors.length) {
+      ok = true;
+      // resumen por fase × lexicalidad × congruencia
+      const hasCong = trialData.headers.includes('congruencia');
+      const counts = {}, blocks = new Map();
+      let nP = 0, nE = 0;
+      for (const r of trialData.rows) {
+        const reps = (r.repeticiones !== undefined && r.repeticiones !== '') ? num(r.repeticiones) : 1;
+        const prac = isTrue(r.practica);
+        const fase = prac ? 'Práctica' : 'Experimental';
+        const b = (r.bloque || '').trim() || (prac ? 'practica' : '1');
+        const k = `${fase}|${r._lex === 'palabra' ? 'Palabra' : 'No palabra'}|${hasCong ? (r.congruencia || '(vacío)') : '—'}`;
+        counts[k] = (counts[k] || 0) + reps;
+        blocks.set(`${fase}|${b}`, (blocks.get(`${fase}|${b}`) || 0) + reps);
+        if (prac) nP += reps; else nE += reps;
+      }
+      msgs.push(['ok', `CSV cargado: ${trialData.rows.length} filas → ${nP} ensayos de práctica y ${nE} experimentales.`]);
+      html += '<table><tr><th>Fase</th><th>Target</th><th>Congruencia</th><th>N</th></tr>' +
+        Object.entries(counts).sort().map(([k, n]) => `<tr>${k.split('|').map(x => `<td>${esc(x)}</td>`).join('')}<td>${n}</td></tr>`).join('') + '</table>';
+      html += '<table><tr><th>Fase</th><th>Bloque</th><th>Ensayos</th></tr>' +
+        [...blocks].map(([k, n]) => `<tr>${k.split('|').map(x => `<td>${esc(x)}</td>`).join('')}<td>${n}</td></tr>`).join('') + '</table>';
+      if (!hasCong) msgs.push(['warn', 'No hay columna «congruencia»: el tipo de priming no quedará codificado en los datos.']);
+      // tiempos frente a la frecuencia de refresco
+      const used = new Map();
+      for (const r of trialData.rows) { const t = timingOf(r); for (const k of ['fijacion_ms','mascara1_ms','prime_ms','mascara2_ms','target_ms']) if (t[k] > 0) used.set(`${k}=${t[k]}`, [k, t[k]]); }
+      for (const [, [k, ms]] of used) {
+        const frames = Math.max(1, Math.round(ms / frameMs)), real = frames * frameMs;
+        if (Math.abs(real - ms) > 2) msgs.push(['warn', `${k} = ${ms} ms no es múltiplo del refresco de esta pantalla (${frameMs.toFixed(1)} ms): se presentará ≈ ${real.toFixed(1)} ms (${frames} frames).`]);
+      }
+    }
+  }
+  $('sources').innerHTML = `Ensayos en uso: <b>${esc(trialSource)}</b> · Configuración en uso: <b>${esc(configSource)}</b>`;
+  $('msgs').innerHTML = msgs.map(([c, m]) => `<p class="msg ${c}">${esc(m)}</p>`).join('');
+  $('summary').innerHTML = html;
+  $('btnStart').disabled = !(ok && $('pid').value.trim());
+  try { $('btnRecover').hidden = !localStorage.getItem(LS_KEY); } catch (e) { $('btnRecover').hidden = true; }
+}
+
+let trialText = null, configText = null;
+let trialSource = 'ninguno', configSource = 'valores por defecto';
+{
+  const ec = ($('config-incluida').textContent || '').trim();
+  const et = ($('ensayos-incluidos').textContent || '').trim();
+  if (ec) { configText = ec; configSource = 'incluida en este archivo HTML'; }
+  if (et) { trialText = et; trialSource = 'incluidos en este archivo HTML'; }
+}
+async function reloadAll() {
+  applyConfig(configText ? parseCSV(configText) : null);
+  trialData = trialText ? validateTrials(parseCSV(trialText)) : null;
+  renderSetup();
+}
+$('fTrials').addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return; trialText = await readFileText(f); trialSource = `archivo «${f.name}»`; reloadAll(); });
+$('fConfig').addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return; configText = await readFileText(f); configSource = `archivo «${f.name}»`; reloadAll(); });
+['pid','mapping'].forEach(id => $(id).addEventListener('input', renderSetup));
+$('mapping').addEventListener('change', renderSetup);
+
+async function measureRefresh(n = 90) {
+  const ts = []; for (let i = 0; i <= n; i++) ts.push(await nextFrame());
+  const d = ts.slice(1).map((t, i) => t - ts[i]).sort((a, b) => a - b);
+  frameMs = d[Math.floor(d.length / 2)]; refreshHz = 1000 / frameMs;
+  $('refreshInfo').textContent = `Frecuencia de refresco medida: ${refreshHz.toFixed(1)} Hz (${frameMs.toFixed(2)} ms por frame). Los tiempos se redondean a frames completos.`;
+}
+
+/* ---------------- salida de datos ---------------- */
+let SESSION = null;
+function saveBackup() { try { localStorage.setItem(LS_KEY, JSON.stringify(SESSION)); } catch (e) {} }
+function fmt(v, dec) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'number') return Number.isInteger(v) ? String(v) : v.toFixed(1).replace('.', dec);
+  return String(v);
+}
+function toCSV(rows, sep, dec) {
+  const cols = []; const seen = new Set();
+  rows.forEach(r => Object.keys(r).forEach(k => { if (!seen.has(k)) { seen.add(k); cols.push(k); } }));
+  const q = s => (s.includes(sep) || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g, '""')}"` : s;
+  return [cols.join(sep), ...rows.map(r => cols.map(c => q(fmt(r[c], dec))).join(sep))].join('\r\n');
+}
+function downloadSession(sess) {
+  const sep = sess.sep === '\\t' ? '\t' : (sess.sep || ';');
+  const csv = toCSV(sess.data, sep, sess.dec || ',');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = sess.filename + (sess.completa ? '' : '_INCOMPLETO') + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  return a.download;
+}
+$('btnRecover').addEventListener('click', () => {
+  try { const s = JSON.parse(localStorage.getItem(LS_KEY)); if (s && s.data) downloadSession(s); } catch (e) { alert('No se pudo recuperar la sesión guardada.'); }
+});
+function downloadText(text, name, type) {
+  const blob = new Blob([text], { type });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+$('btnCfg').addEventListener('click', () => downloadText('\uFEFF' + configToCSV(CFG), 'configuracion_actual.csv', 'text/csv;charset=utf-8'));
+$('btnSaveHtml').addEventListener('click', () => {
+  const safe = t => String(t).replace(/<\/script/gi, '<\\/script');
+  let html = ORIGINAL_HTML
+    .replace(/(<script type="text\/plain" id="config-incluida">)[\s\S]*?(<\/script>)/, (m, a, b) => a + '\n' + safe(configToCSV(CFG)) + '\n' + b)
+    .replace(/(<script type="text\/plain" id="ensayos-incluidos">)[\s\S]*?(<\/script>)/, (m, a, b) => a + '\n' + safe(trialText ? trialText.trim() : '') + '\n' + b);
+  downloadText(html, 'decision_lexica_priming_configurado.html', 'text/html;charset=utf-8');
+});
+
+/* ---------------- presentación ---------------- */
+function stimHTML(text, px, upper) {
+  if (!text) return '';
+  const t = isTrue(upper) ? text.toLocaleUpperCase('es') : text;
+  return `<span style="font-size:${px}px">${esc(t)}</span>`;
+}
+// Resuelve la máscara: '' o 'blanco' = pantalla en blanco; 'auto' = caracter_mascara
+// repetido según la palabra más larga (prime o target); otro texto = tal cual.
+function maskText(v, r) {
+  const n = norm(v);
+  if (!n || n === 'blanco' || n === 'ninguna' || n === 'no') return '';
+  if (n === 'auto') {
+    const len = Math.max([...(r.prime || '')].length, [...(r.target || '')].length, 1);
+    return String(CFG.caracter_mascara || '*').repeat(len);
+  }
+  return String(v);
+}
+// Muestra html durante ms (redondeado a frames). Devuelve el timestamp del frame de inicio.
+async function present(html, ms) {
+  if (!(ms > 0)) return null;
+  const n = Math.max(1, Math.round(ms / frameMs));
+  const t0 = await nextFrame();
+  stim.innerHTML = html;
+  for (let i = 0; i < n - 1; i++) await nextFrame();
+  return t0;
+}
+function presentTarget(html, visibleMs, maxMs, keys) {
+  return new Promise(async resolve => {
+    const onset = await nextFrame();
+    stim.innerHTML = html;
+    let done = false, offAt = null;
+    const finish = res => { if (done) return; done = true; window.removeEventListener('keydown', onKey, true); resolve({ onset, offAt, ...res }); };
+    const onKey = e => {
+      const k = evKey(e);
+      if (k !== keys.w && k !== keys.nw) return;
+      e.preventDefault();
+      const ts = (e.timeStamp > 0 && e.timeStamp < 1e11) ? e.timeStamp : performance.now();
+      finish({ key: k, rt: ts - onset, timeout: false });
+    };
+    window.addEventListener('keydown', onKey, true);
+    while (!done) {
+      const ts = await nextFrame();
+      if (done) break;
+      if (aborted) { finish({ key: '', rt: null, timeout: false, aborted: true }); break; }
+      const el = ts - onset;
+      if (visibleMs > 0 && offAt === null && el >= visibleMs - frameMs / 2) { stim.innerHTML = ''; offAt = ts; }
+      if (maxMs > 0 && el >= maxMs - frameMs / 2) finish({ key: '', rt: null, timeout: true });
+    }
+  });
+}
+async function waitKeys(keys) {
+  let pressed = null;
+  const h = e => { const k = evKey(e); if (keys.includes(k)) { pressed = k; e.preventDefault(); } };
+  window.addEventListener('keydown', h, true);
+  while (!pressed && !aborted) await nextFrame();
+  window.removeEventListener('keydown', h, true);
+  return pressed;
+}
+async function textScreen(text, keys = [' '], extra = {}) {
+  stage.classList.add('text');
+  stim.innerHTML = `<div class="screen">${esc(fillText(text, extra)).replace(/\n/g, '<br>')}</div>`;
+  await waitKeys(keys);
+  stim.innerHTML = '';
+  stage.classList.remove('text');
+}
+
+let anticip = 0, inTarget = false, curKeys = null;
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && e.shiftKey && SESSION && !SESSION.terminada) aborted = true;
+  if (SESSION && !SESSION.terminada && !inTarget && curKeys) {
+    const k = evKey(e); if (k === curKeys.w || k === curKeys.nw) anticip++;
+  }
+  if (SESSION && !SESSION.terminada && [' ', 'ArrowUp', 'ArrowDown'].includes(e.key)) e.preventDefault();
+}, true);
+
+async function runTrial(r, ctx) {
+  const T = timingOf(r);
+  const keys = curKeys;
+  anticip = 0;
+  const m1 = maskText(r.mascara1 ? r.mascara1 : CFG.mascara1, r);
+  const m2 = maskText(r.mascara2 ? r.mascara2 : CFG.mascara2, r);
+  const phases = [];
+  const tF = await present(stimHTML(CFG.simbolo_fijacion, CFG.tamano_fijacion_px, 'no'), T.fijacion_ms); if (tF !== null) phases.push(['fijacion', tF]);
+  const tM1 = await present(stimHTML(m1, CFG.tamano_prime_px, 'no'), T.mascara1_ms); if (tM1 !== null) phases.push(['mascara1', tM1]);
+  const tP = await present(stimHTML(r.prime, CFG.tamano_prime_px, CFG.mayusculas_prime), T.prime_ms); if (tP !== null) phases.push(['prime', tP]);
+  const tM2 = await present(stimHTML(m2, CFG.tamano_prime_px, 'no'), T.mascara2_ms); if (tM2 !== null) phases.push(['mascara2', tM2]);
+  inTarget = true;
+  const res = await presentTarget(stimHTML(r.target, CFG.tamano_target_px, CFG.mayusculas_target), T.target_ms, T.target_max_ms, keys);
+  inTarget = false;
+  phases.push(['target', res.onset]);
+  await nextFrame(); stim.innerHTML = '';
+  if (res.aborted) return null;
+
+  const real = {};
+  for (let i = 0; i < phases.length - 1; i++) real[phases[i][0]] = phases[i + 1][1] - phases[i][1];
+  const correctResp = r._lex;
+  const resp = res.key === keys.w ? 'palabra' : res.key === keys.nw ? 'no_palabra' : '';
+  const correct = res.timeout ? 0 : (resp === correctResp ? 1 : 0);
+
+  const row = {
+    participante: SESSION.meta.participante, sesion: SESSION.meta.sesion, grupo: SESSION.meta.grupo,
+    asignacion_teclas: SESSION.meta.asignacion, fecha_inicio: SESSION.meta.fecha, modo_prueba: SESSION.meta.modo_prueba,
+    modo: SESSION.meta.modo,
+    n_ensayo: ctx.n, fase: ctx.practica ? 'practica' : 'experimental', bloque: ctx.bloque, n_ensayo_bloque: ctx.nb,
+    fila_csv: r._fila
+  };
+  for (const [k, v] of Object.entries(r)) if (!k.startsWith('_') && !CTRL_COLS.has(k)) row[k] = v;
+  for (const k of TIMING_KEYS) row[k] = T[k];
+  row.fijacion_real_ms = real.fijacion ?? null;
+  row.mascara1_texto = m1;
+  row.mascara1_real_ms = real.mascara1 ?? null;
+  row.prime_real_ms = real.prime ?? null;
+  row.mascara2_texto = m2;
+  row.mascara2_real_ms = real.mascara2 ?? null;
+  row.soa_real_ms = tP !== null ? res.onset - tP : null;
+  row.respuesta_correcta = correctResp;
+  row.tecla = res.key ? keyName(res.key) : '';
+  row.respuesta = resp;
+  row.correcto = correct;
+  row.tr_ms = res.rt;
+  row.sin_respuesta = res.timeout ? 1 : 0;
+  row.teclas_anticipadas = anticip;
+  row.refresco_hz = Math.round(refreshHz * 10) / 10;
+  row.pantalla_px = SESSION.meta.pantalla_px;
+  if (SESSION.meta.modo === 'online') { row.consentimiento = SESSION.meta.consentimiento; row.navegador = SESSION.meta.navegador; }
+
+  const fb = ctx.practica ? isTrue(CFG.feedback_practica) : isTrue(CFG.feedback_experimental);
+  if (fb && CFG.feedback_ms > 0) {
+    const [txt, cls] = res.timeout ? [CFG.texto_feedback_lento, 'fb-err'] : correct ? [CFG.texto_feedback_correcto, 'fb-ok'] : [CFG.texto_feedback_error, 'fb-err'];
+    await present(`<span class="${cls}" style="font-size:${CFG.tamano_target_px}px">${esc(txt)}</span>`, CFG.feedback_ms);
+  }
+  await present('', T.iti_ms > 0 ? T.iti_ms : 0);
+  if (T.iti_ms > 0) { await nextFrame(); }
+  return row;
+}
+
+async function runExperiment() {
+  const testMode = $('testMode').checked;
+  const { blocks, warnings } = buildBlocks(trialData.rows, testMode);
+  if (warnings.length) console.warn(warnings.join('\n'));
+  const now = new Date(), pad = n => String(n).padStart(2, '0');
+  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+  const pid = $('pid').value.trim();
+  SESSION = {
+    meta: { participante: pid, sesion: $('sesion').value.trim(), grupo: $('grupo').value.trim(),
+            asignacion: $('mapping').value, fecha: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`, modo_prueba: testMode ? 1 : 0,
+            modo: isTrue(CFG.modo_online) ? 'online' : 'local', consentimiento: ONLINE.consent,
+            pantalla_px: `${screen.width}x${screen.height}`, navegador: navigator.userAgent },
+    filename: `LDT_priming_${pid.replace(/[^\w\-]+/g, '_')}_s${($('sesion').value.trim() || '1').replace(/[^\w\-]+/g, '_')}_${stamp}${pad(now.getSeconds())}${testMode ? '_PRUEBA' : ''}`,
+    sep: CFG.separador_salida, dec: CFG.decimal_salida,
+    data: [], completa: false, terminada: false
+  };
+  aborted = false; curKeys = currentKeys();
+  saveBackup();
+
+  $('setup').hidden = true; stage.hidden = false;
+  document.body.style.background = CFG.color_fondo;
+  stage.style.background = CFG.color_fondo; stage.style.color = CFG.color_texto; stage.style.fontFamily = CFG.fuente;
+  if (isTrue(CFG.pantalla_completa) && document.documentElement.requestFullscreen) {
+    try { await document.documentElement.requestFullscreen(); } catch (e) {}
+  }
+  await measureRefresh(60);
+
+  await textScreen(CFG.texto_instrucciones);
+  let n = 0, nExp = 0;
+  const nExpBlocks = blocks.filter(b => !b.practica).length;
+  let expBlock = 0;
+  outer:
+  for (let bi = 0; bi < blocks.length; bi++) {
+    const b = blocks[bi], prev = blocks[bi - 1];
+    if (aborted) break;
+    if (b.practica && (!prev || !prev.practica)) await textScreen(CFG.texto_inicio_practica);
+    else if (!b.practica && prev && prev.practica) await textScreen(CFG.texto_fin_practica);
+    else if (!b.practica && prev && isTrue(CFG.descanso_entre_bloques))
+      await textScreen(CFG.texto_descanso, [' '], { BLOQUE: expBlock, N_BLOQUES: nExpBlocks });
+    if (!b.practica) expBlock++;
+    for (let ti = 0; ti < b.trials.length; ti++) {
+      if (aborted) break outer;
+      if (!b.practica && CFG.descanso_cada > 0 && nExp > 0 && nExp % CFG.descanso_cada === 0 && ti > 0)
+        await textScreen(CFG.texto_pausa);
+      if (aborted) break outer;
+      n++; if (!b.practica) nExp++;
+      const row = await runTrial(b.trials[ti], { n, nb: ti + 1, practica: b.practica, bloque: b.bloque });
+      if (!row) break outer;
+      SESSION.data.push(row); saveBackup();
+    }
+  }
+  SESSION.completa = !aborted; SESSION.terminada = true; saveBackup();
+  if (ONLINE.active) { await finishOnline(); return; }
+  const fname = SESSION.data.length ? downloadSession(SESSION) : null;
+  if (!aborted) {
+    stage.classList.add('text');
+    stim.innerHTML = `<div class="screen">${esc(fillText(CFG.texto_final)).replace(/\n/g, '<br>')}</div>` +
+      `<div class="hint">Datos guardados en Descargas: ${esc(fname || '')} · Experimentador: pulsa Esc para volver</div>`;
+    await waitKeys(['escape']);
+  }
+  if (document.fullscreenElement) { try { await document.exitFullscreen(); } catch (e) {} }
+  stage.hidden = true; stage.classList.remove('text'); stim.innerHTML = '';
+  document.body.style.background = '';
+  $('setup').hidden = false;
+  $('pid').value = ''; renderSetup();
+  $('msgs').insertAdjacentHTML('afterbegin', `<p class="msg ${aborted ? 'warn' : 'ok'}">${aborted ? 'Sesión abortada' : 'Sesión terminada'}: ${SESSION.data.length} ensayos guardados${fname ? ' en «' + esc(fname) + '»' : ''}. Puedes volver a descargarlos con «Descargar última sesión guardada».</p>`);
+}
+
+$('btnStart').addEventListener('click', () => { if (!$('btnStart').disabled) runExperiment(); });
+/* ---------------- modo online (DataPipe) ---------------- */
+const ONLINE = { active: false, consent: '' };
+const DATAPIPE_URL = 'https://pipe.jspsych.org/api/';
+const urlParams = new URLSearchParams(location.search);
+function urlParam(...names) { for (const n of names) { const v = urlParams.get(n); if (v && v.trim()) return v.trim(); } return ''; }
+function randomId() {
+  const a = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', r = new Uint32Array(8);
+  crypto.getRandomValues(r); return 'P' + [...r].map(x => a[x % a.length]).join('');
+}
+function isMobile() {
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
+    (navigator.maxTouchPoints > 1 && !matchMedia('(any-pointer: fine)').matches);
+}
+const hasDataPipeId = () => { const id = String(CFG.datapipe_id || '').trim(); return !!id && !/PEGA|COMPLETAR/i.test(id); };
+const warnUnload = e => { e.preventDefault(); e.returnValue = ''; };
+
+async function sendDataPipe(sess) {
+  const sep = sess.sep === '\\t' ? '\t' : (sess.sep || ';');
+  const filename = sess.filename + (sess.completa ? '' : '_INCOMPLETO') + '.csv';
+  const body = JSON.stringify({ experimentID: String(CFG.datapipe_id).trim(), filename,
+                                data: '\uFEFF' + toCSV(sess.data, sep, sess.dec || ',') });
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const r = await fetch(DATAPIPE_URL + 'data/', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: '*/*' }, body });
+      if (r.status === 201 || r.status === 202 || r.ok) { sess.enviado = filename; saveBackup(); return true; }
+      const j = await r.json().catch(() => ({}));
+      console.error('DataPipe respondió', r.status, j);
+      if (j && /FILE_EXISTS/.test(String(j.error || ''))) { sess.enviado = filename; saveBackup(); return true; } // un intento anterior ya llegó
+      if (r.status >= 400 && r.status < 500) return false;    // error de configuración: no se reintenta
+    } catch (e) { console.error('Error de red al enviar a DataPipe', e); }
+    await new Promise(res => setTimeout(res, 1500 * (attempt + 1)));
+  }
+  return false;
+}
+async function getDataPipeCondition() {
+  try {
+    const r = await fetch(DATAPIPE_URL + 'condition/', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: '*/*' },
+                                                         body: JSON.stringify({ experimentID: String(CFG.datapipe_id).trim() }) });
+    const j = await r.json();
+    if (typeof j.condition === 'number') return j.condition;
+  } catch (e) { console.error('No se pudo obtener la condición de DataPipe', e); }
+  return null;
+}
+async function finishOnline() {
+  window.removeEventListener('beforeunload', warnUnload);
+  stage.classList.add('text');
+  const show = (t, extra = '') => { stim.innerHTML = `<div class="screen">${esc(fillText(t)).replace(/\n/g, '<br>')}${extra}</div>`; };
+  let ok = false;
+  if (hasDataPipeId() && SESSION.data.length) {
+    show('Guardando tus respuestas…\n\nNo cierres esta ventana.');
+    ok = await sendDataPipe(SESSION);
+  }
+  if (isTrue(CFG.descarga_local_online)) downloadSession(SESSION);
+  if (document.fullscreenElement) { try { await document.exitFullscreen(); } catch (e) {} }
+  if (ok || (!hasDataPipeId() && isTrue(CFG.descarga_local_online))) show(CFG.texto_final_online);
+  else {
+    window.addEventListener('beforeunload', warnUnload);
+    show(CFG.texto_error_envio, '<p style="text-align:center;margin-top:28px"><button class="primary" id="dlBtn">Descargar mis datos</button></p>');
+    $('dlBtn').addEventListener('click', () => { downloadSession(SESSION); window.removeEventListener('beforeunload', warnUnload); });
+  }
+}
+function initOnline() {
+  ONLINE.active = true;
+  $('setup').hidden = true; $('online').hidden = false;
+  $('onText').innerHTML = esc(fillText(CFG.texto_bienvenida)).replace(/\n/g, '<br>');
+  const consent = String(CFG.texto_consentimiento || '').trim();
+  if (consent) { $('onConsent').hidden = false; $('onConsentText').textContent = fillText(consent); }
+  const errs = [];
+  if (!trialData || trialData.errors.length || !trialData.rows.length)
+    errs.push('La tarea no está bien configurada (no hay ensayos válidos). Avisa a la persona responsable del estudio.');
+  if (!hasDataPipeId() && !isTrue(CFG.descarga_local_online))
+    errs.push('La tarea no está bien configurada (falta el identificador de DataPipe). Avisa a la persona responsable del estudio.');
+  if (isMobile()) errs.push('Esta tarea necesita un ordenador con teclado. Por favor, ábrela desde un ordenador (no desde un móvil o tableta).');
+  if (errs.length) { $('onErr').innerHTML = errs.map(esc).join('<br>'); $('onStart').disabled = true; return; }
+  $('onStart').addEventListener('click', async () => {
+    if (consent && !$('onAgree').checked) { $('onErr').textContent = 'Para participar tienes que marcar la casilla de consentimiento.'; return; }
+    $('onErr').textContent = ''; $('onStart').disabled = true;
+    ONLINE.consent = consent ? 'si' : 'no_aplica';
+    $('pid').value = urlParam('id', 'participante', 'PROLIFIC_PID', 'pid') || randomId();
+    $('sesion').value = urlParam('sesion') || '1';
+    $('grupo').value = urlParam('grupo');
+    $('testMode').checked = urlParam('prueba') === '1';
+    let map = norm(CFG.asignacion_teclas_online);
+    if (map === 'datapipe') { const c = hasDataPipeId() ? await getDataPipeCondition() : null; map = c === null ? 'aleatoria' : (c % 2 === 0 ? 'estandar' : 'invertida'); }
+    if (map !== 'estandar' && map !== 'invertida') map = Math.random() < 0.5 ? 'estandar' : 'invertida';
+    $('mapping').value = map;
+    $('online').hidden = true;
+    window.addEventListener('beforeunload', warnUnload);
+    runExperiment();
+  });
+}
+
+reloadAll().then(() => { if (isTrue(CFG.modo_online) && urlParam('admin') !== '1') initOnline(); });
+measureRefresh().then(renderSetup);
+</script></body></html>
